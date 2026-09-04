@@ -247,7 +247,7 @@ def _draw_column_window(
     draw.text(
         (left, y + 35),
         _reset_text(window.reset_at, now, window.remaining_percent),
-        font=_font(9),
+        font=_mono_font(9),
         fill=0,
     )
 
