@@ -17,6 +17,7 @@ HEIGHT = 176
 FONT_REGULAR = Path("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf")
 FONT_BOLD = Path("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf")
 FONT_MONO = Path("/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf")
+FONT_RESET_MONO = Path("/usr/share/fonts/truetype/noto/NotoSansMono-Regular.ttf")
 OPENAI_LOGO = (
     "........####..........",
     "......##########......",
@@ -96,6 +97,13 @@ def _mono_font(size: int) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
         return ImageFont.truetype(str(FONT_MONO), size)
     except OSError:
         return _font(size)
+
+
+def _reset_font(size: int) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
+    try:
+        return ImageFont.truetype(str(FONT_RESET_MONO), size)
+    except OSError:
+        return _mono_font(size)
 
 
 def _draw_bitmap(
@@ -259,7 +267,7 @@ def _draw_column_window(
     draw.text(
         (left, y + 35),
         _reset_text(window.reset_at, now, window.remaining_percent),
-        font=_mono_font(11),
+        font=_reset_font(11),
         fill=0,
     )
 
