@@ -5,14 +5,20 @@ from __future__ import annotations
 
 import argparse
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import contextmanager
+import fcntl
 import json
 import logging
 from pathlib import Path
+from typing import Iterator
 
 from sablier.claude_usage import ClaudeUsageError, fetch_claude_usage
 from sablier.codex_usage import UsageError, fetch_usage
 from sablier.epaper import EPD2in7V2, EpaperError
 from sablier.render import render_dashboard
+
+
+REFRESH_LOCK = Path("output/refresh.lock")
 
 
 def parse_args() -> argparse.Namespace:
@@ -28,9 +34,23 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def main() -> int:
-    args = parse_args()
-    logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
+@contextmanager
+def refresh_lock() -> Iterator[bool]:
+    """Prevent the timer and hardware button from refreshing concurrently."""
+    REFRESH_LOCK.parent.mkdir(parents=True, exist_ok=True)
+    with REFRESH_LOCK.open("w", encoding="utf-8") as lock_file:
+        try:
+            fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            yield False
+            return
+        try:
+            yield True
+        finally:
+            fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+
+
+def update(args: argparse.Namespace) -> int:
     try:
         with ThreadPoolExecutor(max_workers=2) as executor:
             codex_future = executor.submit(fetch_usage)
@@ -60,6 +80,16 @@ def main() -> int:
     except (UsageError, ClaudeUsageError, EpaperError) as exc:
         logging.error("%s", exc)
         return 1
+
+
+def main() -> int:
+    args = parse_args()
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
+    with refresh_lock() as acquired:
+        if not acquired:
+            logging.info("Another refresh is already running; skipping")
+            return 0
+        return update(args)
 
 
 if __name__ == "__main__":
