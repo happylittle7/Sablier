@@ -6,10 +6,21 @@ from PIL import ImageChops
 
 from sablier.claude_usage import ClaudeSnapshot
 from sablier.codex_usage import UsageSnapshot, UsageWindow
-from sablier.render import _reset_text, render_dashboard, render_usage
+from sablier.render import (
+    CLAUDE_LOGO,
+    OPENAI_LOGO,
+    _reset_text,
+    render_dashboard,
+    render_usage,
+)
 
 
 class RenderTests(unittest.TestCase):
+    def test_provider_logos_share_native_22_pixel_canvas(self) -> None:
+        for logo in (CLAUDE_LOGO, OPENAI_LOGO):
+            self.assertEqual(len(logo), 22)
+            self.assertTrue(all(len(row) == 22 for row in logo))
+
     def test_full_allowance_without_reset_is_available_now(self) -> None:
         self.assertEqual(_reset_text(None, 1000, 100), "Available now")
         self.assertEqual(_reset_text(None, 1000, 80), "Reset in --")

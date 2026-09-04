@@ -18,36 +18,28 @@ FONT_REGULAR = Path("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf")
 FONT_BOLD = Path("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf")
 FONT_MONO = Path("/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf")
 OPENAI_LOGO = (
-    "...........#####..............",
-    ".........#########............",
-    "........###.....######........",
-    ".......###.......########.....",
-    "......###......####...####....",
-    ".....###.....####.......###...",
-    "...#####...####..........###..",
-    "..######..####.....#......##..",
-    ".###..##..##.....#####....##..",
-    ".##...##..##...###..####..##..",
-    "##....##..##.####.....######..",
-    "##....##..########.....#####..",
-    "##....##..###....###.....###..",
-    "##....##..##......####....###.",
-    "##....##..##......##.##....##.",
-    ".##...###.##......##..##....##",
-    ".###....####......##..##....##",
-    "..###.....###....###..##....##",
-    "..#####.....########..##....##",
-    "..######.....####.##..##....##",
-    "..##..####..###...##..##...##.",
-    "..##....#####.....##..##..###.",
-    "..##......#.....####..######..",
-    "..###..........####...#####...",
-    "...###.......####.....###.....",
-    "....####...####......###......",
-    ".....########.......###.......",
-    "........######.....###........",
-    "............#########.........",
-    "..............#####...........",
+    "........####..........",
+    "......##########......",
+    ".....###....######....",
+    "....###....###..###...",
+    "..####..####......##..",
+    ".#####.###....#....##.",
+    ".##.##.##..######..##.",
+    "##..##.##.###...#####.",
+    "##..##.######....####.",
+    "##..##.##....###..###.",
+    "##..##.##....####..##.",
+    ".##.#####....##.##..##",
+    ".###..###....##.##..##",
+    ".####....######.##..##",
+    ".#####...###.##.##..##",
+    ".##..######..##.##.##.",
+    ".##....#....###.#####.",
+    "..##......####..####..",
+    "...###..###....###....",
+    "....######....###.....",
+    "......##########......",
+    "..........####........",
 )
 CLAUDE_LOGO = (
     ".....##.....#.........",
@@ -106,28 +98,23 @@ def _mono_font(size: int) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
         return _font(size)
 
 
-def _draw_openai_logo(
-    draw: ImageDraw.ImageDraw, x: int, y: int, *, size: int = 30
+def _draw_bitmap(
+    draw: ImageDraw.ImageDraw, bitmap: tuple[str, ...], x: int, y: int
 ) -> None:
-    """Draw the supplied OpenAI mark as a crisp 1-bit bitmap."""
-    for target_y in range(size):
-        source_y = target_y * 30 // size
-        for target_x in range(size):
-            source_x = target_x * 30 // size
-            if OPENAI_LOGO[source_y][source_x] == "#":
-                draw.point((x + target_x, y + target_y), fill=0)
+    for row_y, row in enumerate(bitmap):
+        for row_x, pixel in enumerate(row):
+            if pixel == "#":
+                draw.point((x + row_x, y + row_y), fill=0)
 
 
-def _draw_claude_logo(
-    draw: ImageDraw.ImageDraw, x: int, y: int, *, size: int = 22
-) -> None:
-    """Draw a monochrome Claude mark derived from the supplied brand artwork."""
-    for target_y in range(size):
-        source_y = target_y * 22 // size
-        for target_x in range(size):
-            source_x = target_x * 22 // size
-            if CLAUDE_LOGO[source_y][source_x] == "#":
-                draw.point((x + target_x, y + target_y), fill=0)
+def _draw_openai_logo(draw: ImageDraw.ImageDraw, x: int, y: int) -> None:
+    """Draw the OpenAI mark from its native 22x22 monochrome bitmap."""
+    _draw_bitmap(draw, OPENAI_LOGO, x, y)
+
+
+def _draw_claude_logo(draw: ImageDraw.ImageDraw, x: int, y: int) -> None:
+    """Draw the Claude mark from its native 22x22 monochrome bitmap."""
+    _draw_bitmap(draw, CLAUDE_LOGO, x, y)
 
 
 def _draw_warning_icon(draw: ImageDraw.ImageDraw, x: int, y: int) -> None:
@@ -300,7 +287,7 @@ def render_dashboard(
     image = Image.new("1", (WIDTH, HEIGHT), 255)
     draw = ImageDraw.Draw(image)
 
-    _draw_claude_logo(draw, 8, 3, size=20)
+    _draw_claude_logo(draw, 8, 2)
     if claude_warning:
         _draw_warning_icon(draw, 32, 5)
     _draw_plan_label(draw, claude.plan_type, 5, right=126)
@@ -311,7 +298,7 @@ def render_dashboard(
         draw, claude.secondary, label="WEEKLY", x=0, y=94, now=timestamp
     )
 
-    _draw_openai_logo(draw, 139, 2, size=22)
+    _draw_openai_logo(draw, 139, 2)
     if codex_warning:
         _draw_warning_icon(draw, 164, 5)
     _draw_plan_label(draw, codex.plan_type, 5, right=258)
