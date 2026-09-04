@@ -16,6 +16,7 @@ WIDTH = 264
 HEIGHT = 176
 FONT_REGULAR = Path("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf")
 FONT_BOLD = Path("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf")
+FONT_MONO = Path("/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf")
 OPENAI_LOGO = (
     "...........#####..............",
     ".........#########............",
@@ -81,6 +82,13 @@ def _font(size: int, *, bold: bool = False) -> ImageFont.FreeTypeFont | ImageFon
         return ImageFont.load_default()
 
 
+def _mono_font(size: int) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
+    try:
+        return ImageFont.truetype(str(FONT_MONO), size)
+    except OSError:
+        return _font(size)
+
+
 def _draw_openai_logo(
     draw: ImageDraw.ImageDraw, x: int, y: int, *, size: int = 30
 ) -> None:
@@ -115,16 +123,16 @@ def _window_label(window: UsageWindow, fallback: str) -> str:
 
 def _reset_text(reset_at: int | None, now: int) -> str:
     if reset_at is None:
-        return "reset --"
+        return "Reset in --"
     remaining = max(0, reset_at - now)
     days, remainder = divmod(remaining, 86400)
     hours, remainder = divmod(remainder, 3600)
     minutes = remainder // 60
     if days:
-        return f"reset {days}d {hours}h"
+        return f"Reset in {days}d {hours}h"
     if hours:
-        return f"reset {hours}h {minutes:02d}m"
-    return f"reset {minutes}m"
+        return f"Reset in {hours}h {minutes:02d}m"
+    return f"Reset in {minutes}m"
 
 
 def _draw_window(
@@ -191,27 +199,30 @@ def render_usage(snapshot: UsageSnapshot, now: int | None = None) -> Image.Image
     return image
 
 
-def _draw_compact_window(
+def _draw_column_window(
     draw: ImageDraw.ImageDraw,
     window: UsageWindow | None,
     *,
     label: str,
+    x: int,
     y: int,
     now: int,
 ) -> None:
-    draw.text((7, y), label, font=_font(13, bold=True), fill=0)
+    left = x + 7
+    right = x + 124
+    draw.text((left, y), label, font=_font(12, bold=True), fill=0)
     if window is None:
-        draw.text((44, y), "No data", font=_font(12), fill=0)
+        draw.text((left, y + 21), "No data", font=_font(11), fill=0)
         return
     percent = f"{int(round(window.remaining_percent))}%"
     percent_box = draw.textbbox((0, 0), percent, font=_font(16, bold=True))
     draw.text(
-        (257 - (percent_box[2] - percent_box[0]), y - 2),
+        (right - (percent_box[2] - percent_box[0]), y - 2),
         percent,
         font=_font(16, bold=True),
         fill=0,
     )
-    bar_x, bar_y, bar_w, bar_h = 42, y + 1, 157, 12
+    bar_x, bar_y, bar_w, bar_h = left, y + 20, 117, 12
     draw.rounded_rectangle(
         (bar_x, bar_y, bar_x + bar_w, bar_y + bar_h), radius=3, outline=0
     )
@@ -220,16 +231,18 @@ def _draw_compact_window(
         draw.rectangle(
             (bar_x + 2, bar_y + 2, bar_x + 2 + fill_w, bar_y + bar_h - 2), fill=0
         )
-    draw.text((43, y + 14), _reset_text(window.reset_at, now), font=_font(9), fill=0)
+    draw.text((left, y + 35), _reset_text(window.reset_at, now), font=_font(9), fill=0)
 
 
-def _draw_plan_badge(draw: ImageDraw.ImageDraw, plan: str, y: int) -> None:
+def _draw_plan_badge(
+    draw: ImageDraw.ImageDraw, plan: str, y: int, *, right: int = 259
+) -> None:
     text = plan.upper()
     badge_font = _font(10, bold=True)
     box = draw.textbbox((0, 0), text, font=badge_font)
     width = box[2] - box[0]
-    draw.rounded_rectangle((252 - width, y, 259, y + 16), radius=3, outline=0)
-    draw.text((255 - width, y + 1), text, font=badge_font, fill=0)
+    draw.rounded_rectangle((right - width - 7, y, right, y + 16), radius=3, outline=0)
+    draw.text((right - width - 4, y + 1), text, font=badge_font, fill=0)
 
 
 def render_dashboard(
@@ -242,19 +255,33 @@ def render_dashboard(
     image = Image.new("1", (WIDTH, HEIGHT), 255)
     draw = ImageDraw.Draw(image)
 
-    _draw_claude_logo(draw, 6, 1)
-    _draw_plan_badge(draw, claude.plan_type, 3)
-    _draw_compact_window(draw, claude.primary, label="5H", y=24, now=timestamp)
-    _draw_compact_window(draw, claude.secondary, label="WK", y=50, now=timestamp)
-    draw.line((5, 78, 258, 78), fill=0, width=2)
+    _draw_claude_logo(draw, 7, 2)
+    _draw_plan_badge(draw, claude.plan_type, 4, right=126)
+    draw.line((5, 29, 126, 29), fill=0)
+    _draw_column_window(
+        draw, claude.primary, label="5H", x=0, y=36, now=timestamp
+    )
+    _draw_column_window(
+        draw, claude.secondary, label="WEEK", x=0, y=94, now=timestamp
+    )
 
-    _draw_openai_logo(draw, 6, 82, size=21)
-    _draw_plan_badge(draw, codex.plan_type, 84)
-    _draw_compact_window(draw, codex.primary, label="5H", y=106, now=timestamp)
-    _draw_compact_window(draw, codex.secondary, label="WK", y=132, now=timestamp)
+    _draw_openai_logo(draw, 139, 2, size=22)
+    _draw_plan_badge(draw, codex.plan_type, 4, right=258)
+    draw.line((137, 29, 258, 29), fill=0)
+    _draw_column_window(
+        draw, codex.primary, label="5H", x=132, y=36, now=timestamp
+    )
+    _draw_column_window(
+        draw, codex.secondary, label="WEEK", x=132, y=94, now=timestamp
+    )
+
+    draw.rectangle((131, 2, 132, 155), fill=0)
 
     latest = max(codex.fetched_at, claude.fetched_at)
-    footer = datetime.fromtimestamp(latest).strftime("Updated %H:%M  |  remaining")
-    draw.line((5, 160, 258, 160), fill=0)
-    draw.text((7, 163), footer, font=_font(9), fill=0)
+    footer = datetime.fromtimestamp(latest).strftime("UPDATED %H:%M")
+    footer_font = _mono_font(10)
+    footer_box = draw.textbbox((0, 0), footer, font=footer_font)
+    footer_width = footer_box[2] - footer_box[0]
+    draw.line((5, 157, 258, 157), fill=0)
+    draw.text(((WIDTH - footer_width) // 2, 162), footer, font=footer_font, fill=0)
     return image
