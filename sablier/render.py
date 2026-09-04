@@ -252,15 +252,14 @@ def _draw_column_window(
     )
 
 
-def _draw_plan_badge(
+def _draw_plan_label(
     draw: ImageDraw.ImageDraw, plan: str, y: int, *, right: int = 259
 ) -> None:
     text = plan.upper()
-    badge_font = _font(10)
-    box = draw.textbbox((0, 0), text, font=badge_font)
+    label_font = _mono_font(10)
+    box = draw.textbbox((0, 0), text, font=label_font)
     width = box[2] - box[0]
-    draw.rounded_rectangle((right - width - 7, y, right, y + 16), radius=3, outline=0)
-    draw.text((right - width - 4, y + 1), text, font=badge_font, fill=0)
+    draw.text((right - width + 1, y), text, font=label_font, fill=0)
 
 
 def render_dashboard(
@@ -274,8 +273,7 @@ def render_dashboard(
     draw = ImageDraw.Draw(image)
 
     _draw_claude_logo(draw, 8, 3, size=20)
-    _draw_plan_badge(draw, claude.plan_type, 4, right=126)
-    draw.line((5, 29, 126, 29), fill=0)
+    _draw_plan_label(draw, claude.plan_type, 5, right=126)
     _draw_column_window(
         draw, claude.primary, label="SESSION", x=0, y=36, now=timestamp
     )
@@ -284,8 +282,7 @@ def render_dashboard(
     )
 
     _draw_openai_logo(draw, 139, 2, size=22)
-    _draw_plan_badge(draw, codex.plan_type, 4, right=258)
-    draw.line((137, 29, 258, 29), fill=0)
+    _draw_plan_label(draw, codex.plan_type, 5, right=258)
     _draw_column_window(
         draw, codex.primary, label="SESSION", x=132, y=36, now=timestamp
     )
