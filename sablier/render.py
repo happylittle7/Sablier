@@ -73,6 +73,23 @@ CLAUDE_LOGO = (
     "..........##..........",
     "..........#...........",
 )
+WARNING_ICON = (
+    ".......##.......",
+    ".......##.......",
+    "......####......",
+    "......####......",
+    ".....######.....",
+    "....###..###....",
+    "....###..###....",
+    "...####..####...",
+    "...####..####...",
+    "..#####..#####..",
+    "..############..",
+    ".##############.",
+    ".######..######.",
+    "################",
+    ".##############.",
+)
 
 
 def _font(size: int, *, bold: bool = False) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
@@ -111,6 +128,14 @@ def _draw_claude_logo(
             source_x = target_x * 22 // size
             if CLAUDE_LOGO[source_y][source_x] == "#":
                 draw.point((x + target_x, y + target_y), fill=0)
+
+
+def _draw_warning_icon(draw: ImageDraw.ImageDraw, x: int, y: int) -> None:
+    """Draw the supplied filled warning mark as a monochrome bitmap."""
+    for row_y, row in enumerate(WARNING_ICON):
+        for row_x, pixel in enumerate(row):
+            if pixel == "#":
+                draw.point((x + row_x, y + row_y), fill=0)
 
 
 def _window_label(window: UsageWindow, fallback: str) -> str:
@@ -266,6 +291,9 @@ def render_dashboard(
     codex: UsageSnapshot,
     claude: ClaudeSnapshot,
     now: int | None = None,
+    *,
+    codex_warning: bool = False,
+    claude_warning: bool = False,
 ) -> Image.Image:
     """Render Claude and Codex allowance together on the 2.7-inch panel."""
     timestamp = now or int(time.time())
@@ -273,6 +301,8 @@ def render_dashboard(
     draw = ImageDraw.Draw(image)
 
     _draw_claude_logo(draw, 8, 3, size=20)
+    if claude_warning:
+        _draw_warning_icon(draw, 32, 5)
     _draw_plan_label(draw, claude.plan_type, 5, right=126)
     _draw_column_window(
         draw, claude.primary, label="SESSION", x=0, y=36, now=timestamp
@@ -282,6 +312,8 @@ def render_dashboard(
     )
 
     _draw_openai_logo(draw, 139, 2, size=22)
+    if codex_warning:
+        _draw_warning_icon(draw, 164, 5)
     _draw_plan_label(draw, codex.plan_type, 5, right=258)
     _draw_column_window(
         draw, codex.primary, label="SESSION", x=132, y=36, now=timestamp
@@ -293,7 +325,11 @@ def render_dashboard(
     draw.line((132, 2, 132, 155), fill=0)
 
     latest = max(codex.fetched_at, claude.fetched_at)
-    footer = datetime.fromtimestamp(latest).strftime("UPDATED %H:%M")
+    footer = (
+        datetime.fromtimestamp(latest).strftime("UPDATED %H:%M")
+        if latest > 0
+        else "UPDATED --:--"
+    )
     footer_font = _mono_font(10)
     footer_box = draw.textbbox((0, 0), footer, font=footer_font)
     footer_width = footer_box[2] - footer_box[0]

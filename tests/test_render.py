@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import unittest
 
+from PIL import ImageChops
+
 from sablier.claude_usage import ClaudeSnapshot
 from sablier.codex_usage import UsageSnapshot, UsageWindow
 from sablier.render import _reset_text, render_dashboard, render_usage
@@ -41,6 +43,10 @@ class RenderTests(unittest.TestCase):
         image = render_dashboard(codex, claude, now=1000)
         self.assertEqual(image.size, (264, 176))
         self.assertEqual(image.mode, "1")
+
+        warned = render_dashboard(codex, claude, now=1000, claude_warning=True)
+        difference = ImageChops.difference(image, warned)
+        self.assertIsNotNone(difference.getbbox())
 
 
 if __name__ == "__main__":

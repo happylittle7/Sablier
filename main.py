@@ -12,11 +12,12 @@ import logging
 from pathlib import Path
 from typing import Iterator
 
-from sablier.claude_usage import ClaudeUsageError, fetch_claude_usage
-from sablier.codex_usage import UsageError, fetch_usage
+from sablier.claude_usage import ClaudeSnapshot, ClaudeUsageError, fetch_claude_usage
+from sablier.codex_usage import UsageError, UsageSnapshot, fetch_usage
 from sablier.daemon import DEFAULT_INTERVAL_SECONDS, run_daemon
 from sablier.epaper import EPD2in7V2, EpaperError
 from sablier.render import render_dashboard
+from sablier.state import CachedSnapshots, load_snapshots, save_snapshots
 
 
 REFRESH_LOCK = Path("output/refresh.lock")
@@ -64,18 +65,49 @@ def refresh_lock() -> Iterator[bool]:
 
 def update(args: argparse.Namespace) -> int:
     try:
+        cached = load_snapshots()
         with ThreadPoolExecutor(max_workers=2) as executor:
             codex_future = executor.submit(fetch_usage)
             claude_future = executor.submit(fetch_claude_usage)
-            codex = codex_future.result()
-            claude = claude_future.result()
+            try:
+                codex = codex_future.result()
+                codex_warning = False
+            except Exception as exc:
+                logging.error("Codex update failed: %s", exc)
+                codex = cached.codex or UsageSnapshot("unknown", False, None, None, 0)
+                codex_warning = True
+            try:
+                claude = claude_future.result()
+                claude_warning = False
+            except Exception as exc:
+                logging.error("Claude update failed: %s", exc)
+                claude = cached.claude or ClaudeSnapshot("unknown", None, None, 0)
+                claude_warning = True
+
+        try:
+            save_snapshots(CachedSnapshots(codex=codex, claude=claude))
+        except OSError as exc:
+            logging.warning("Could not save usage cache: %s", exc)
         if args.json:
             print(
                 json.dumps(
-                    {"codex": codex.to_dict(), "claude": claude.to_dict()}, indent=2
+                    {
+                        "codex": codex.to_dict(),
+                        "claude": claude.to_dict(),
+                        "warnings": {
+                            "codex": codex_warning,
+                            "claude": claude_warning,
+                        },
+                    },
+                    indent=2,
                 )
             )
-        image = render_dashboard(codex, claude)
+        image = render_dashboard(
+            codex,
+            claude,
+            codex_warning=codex_warning,
+            claude_warning=claude_warning,
+        )
         if args.preview:
             output_path = args.preview
         else:
