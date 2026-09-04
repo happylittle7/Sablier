@@ -1,0 +1,16 @@
+[Unit]
+Description=Sablier Codex e-paper usage display
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=happylittle7
+Group=happylittle7
+SupplementaryGroups=spi gpio
+Environment=HOME=/home/happylittle7
+WorkingDirectory=/home/happylittle7/Developer/Sablier
+ExecStart=/usr/bin/python3 /home/happylittle7/Developer/Sablier/main.py
+
+[Install]
+WantedBy=multi-user.target
