@@ -12,6 +12,8 @@ import logging
 from pathlib import Path
 from typing import Iterator
 
+from PIL import Image, UnidentifiedImageError
+
 from sablier.claude_usage import ClaudeSnapshot, ClaudeUsageError, fetch_claude_usage
 from sablier.codex_usage import UsageError, UsageSnapshot, fetch_usage
 from sablier.daemon import DEFAULT_INTERVAL_SECONDS, run_daemon
@@ -21,6 +23,7 @@ from sablier.state import CachedSnapshots, load_snapshots, save_snapshots
 
 
 REFRESH_LOCK = Path("output/refresh.lock")
+DISPLAYED_FRAME = Path("output/displayed.png")
 
 
 def parse_args() -> argparse.Namespace:
@@ -63,7 +66,26 @@ def refresh_lock() -> Iterator[bool]:
             fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
 
 
-def update(args: argparse.Namespace) -> int:
+def _load_displayed_frame() -> Image.Image | None:
+    try:
+        with Image.open(DISPLAYED_FRAME) as image:
+            frame = image.convert("1")
+            frame.load()
+    except (FileNotFoundError, OSError, UnidentifiedImageError):
+        return None
+    if frame.size != (264, 176):
+        return None
+    return frame
+
+
+def _save_displayed_frame(image: Image.Image) -> None:
+    DISPLAYED_FRAME.parent.mkdir(parents=True, exist_ok=True)
+    temporary = DISPLAYED_FRAME.with_suffix(".tmp.png")
+    image.save(temporary)
+    temporary.replace(DISPLAYED_FRAME)
+
+
+def update(args: argparse.Namespace, refresh_mode: str = "full") -> int:
     try:
         cached = load_snapshots()
         with ThreadPoolExecutor(max_workers=2) as executor:
@@ -116,9 +138,17 @@ def update(args: argparse.Namespace) -> int:
         image.save(output_path)
         logging.info("Saved rendered dashboard to %s", output_path)
         if not args.preview:
-            logging.info("Refreshing e-paper display")
+            base_image = _load_displayed_frame() if refresh_mode == "partial" else None
+            actual_mode = "partial" if base_image is not None else "full"
+            if refresh_mode == "partial" and base_image is None:
+                logging.warning("No valid displayed frame; falling back to full refresh")
+            logging.info("Refreshing e-paper display (%s mode)", actual_mode)
             with EPD2in7V2() as epd:
-                epd.display(image)
+                if base_image is not None:
+                    epd.display_partial(image, base_image)
+                else:
+                    epd.display(image)
+            _save_displayed_frame(image)
             logging.info("Display updated")
         return 0
     except (UsageError, ClaudeUsageError, EpaperError) as exc:
@@ -126,12 +156,12 @@ def update(args: argparse.Namespace) -> int:
         return 1
 
 
-def refresh_once(args: argparse.Namespace) -> int:
+def refresh_once(args: argparse.Namespace, refresh_mode: str = "full") -> int:
     with refresh_lock() as acquired:
         if not acquired:
             logging.info("Another refresh is already running; skipping")
             return 0
-        return update(args)
+        return update(args, refresh_mode)
 
 
 def main() -> int:
@@ -144,7 +174,9 @@ def main() -> int:
         if args.interval <= 0:
             logging.error("--interval must be greater than zero")
             return 2
-        return run_daemon(lambda: refresh_once(args), interval=args.interval)
+        return run_daemon(
+            lambda mode: refresh_once(args, mode), interval=args.interval
+        )
     return refresh_once(args)
 
 

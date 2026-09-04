@@ -13,6 +13,14 @@ KEY4_GPIO = 19
 DEBOUNCE_SECONDS = 0.1
 POLL_SECONDS = 0.05
 DEFAULT_INTERVAL_SECONDS = 5 * 60
+MAX_PARTIAL_REFRESHES = 5
+
+
+def refresh_mode_for(reason: str, partial_refreshes: int) -> str:
+    """Choose a ghosting-safe mode for the next refresh."""
+    if reason == "scheduled" and partial_refreshes < MAX_PARTIAL_REFRESHES:
+        return "partial"
+    return "full"
 
 
 def _wait_for_trigger(button: object, stopping: threading.Event, interval: float) -> str | None:
@@ -38,7 +46,7 @@ def _wait_for_trigger(button: object, stopping: threading.Event, interval: float
 
 
 def run_daemon(
-    refresh: Callable[[], int],
+    refresh: Callable[[str], int],
     *,
     interval: float = DEFAULT_INTERVAL_SECONDS,
 ) -> int:
@@ -65,16 +73,22 @@ def run_daemon(
     )
 
     reason = "startup"
+    partial_refreshes = 0
     try:
         while not stopping.is_set():
-            logging.info("Starting %s refresh", reason)
+            mode = refresh_mode_for(reason, partial_refreshes)
+            logging.info("Starting %s refresh (%s mode)", reason, mode)
             try:
-                exit_code = refresh()
+                exit_code = refresh(mode)
             except Exception:
                 logging.exception("Unexpected refresh failure")
             else:
                 if exit_code:
                     logging.warning("Refresh exited with status %d", exit_code)
+                elif mode == "partial":
+                    partial_refreshes += 1
+                else:
+                    partial_refreshes = 0
 
             if stopping.is_set():
                 break

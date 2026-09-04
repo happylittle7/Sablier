@@ -90,11 +90,53 @@ class EPD2in7V2:
 
     def display(self, image: Image.Image) -> None:
         data = self._buffer(image)
-        self._command(0x24)
-        self._dc.on()
-        self._spi.writebytes2(data)
+        self._write_ram(0x24, data)
+        # Keep both controller RAM planes in sync so this frame can be used as
+        # the reference for a subsequent partial refresh.
+        self._write_ram(0x26, data)
         self._command(0x22)
         self._data(0xF7)
+        self._command(0x20)
+        self._wait_idle()
+
+    def _write_ram(self, command: int, data: bytes) -> None:
+        self._command(command)
+        self._dc.on()
+        self._spi.writebytes2(data)
+
+    def display_partial(self, image: Image.Image, base_image: Image.Image) -> None:
+        """Refresh the full panel with the V2 partial-update waveform.
+
+        The HAT is powered off between daemon refreshes, so its old-image RAM
+        cannot be assumed to survive. Rehydrate both RAM planes with the last
+        successfully displayed frame without activating the panel, then write
+        the new frame and trigger a partial update.
+        """
+        base_data = self._buffer(base_image)
+        new_data = self._buffer(image)
+
+        self._write_ram(0x24, base_data)
+        self._write_ram(0x26, base_data)
+
+        # Match Waveshare's V2 partial-refresh sequence. Controller RAM is
+        # retained across this reset while power remains enabled.
+        self._hardware_reset()
+        self._command(0x3C)
+        self._data(0x80)
+
+        # Full controller window: X is byte-addressed, Y is pixel-addressed.
+        self._command(0x44)
+        self._data(0x00, (self.width - 1) // 8)
+        self._command(0x45)
+        self._data(0x00, 0x00, (self.height - 1) & 0xFF, (self.height - 1) >> 8)
+        self._command(0x4E)
+        self._data(0x00)
+        self._command(0x4F)
+        self._data(0x00, 0x00)
+
+        self._write_ram(0x24, new_data)
+        self._command(0x22)
+        self._data(0xFF)
         self._command(0x20)
         self._wait_idle()
 
