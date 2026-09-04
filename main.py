@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Fetch Codex allowance and update the e-paper display."""
+"""Fetch Claude and Codex allowances and update the e-paper display."""
 
 from __future__ import annotations
 
@@ -14,6 +14,7 @@ from typing import Iterator
 
 from sablier.claude_usage import ClaudeUsageError, fetch_claude_usage
 from sablier.codex_usage import UsageError, fetch_usage
+from sablier.daemon import DEFAULT_INTERVAL_SECONDS, run_daemon
 from sablier.epaper import EPD2in7V2, EpaperError
 from sablier.render import render_dashboard
 
@@ -30,6 +31,17 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--json", action="store_true", help="print normalized non-sensitive usage JSON"
+    )
+    parser.add_argument(
+        "--daemon",
+        action="store_true",
+        help="continuously refresh every 5 minutes and when KEY4 is pressed",
+    )
+    parser.add_argument(
+        "--interval",
+        type=float,
+        default=DEFAULT_INTERVAL_SECONDS,
+        help=argparse.SUPPRESS,
     )
     return parser.parse_args()
 
@@ -82,14 +94,26 @@ def update(args: argparse.Namespace) -> int:
         return 1
 
 
-def main() -> int:
-    args = parse_args()
-    logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
+def refresh_once(args: argparse.Namespace) -> int:
     with refresh_lock() as acquired:
         if not acquired:
             logging.info("Another refresh is already running; skipping")
             return 0
         return update(args)
+
+
+def main() -> int:
+    args = parse_args()
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
+    if args.daemon:
+        if args.preview or args.json:
+            logging.error("--daemon cannot be combined with --preview or --json")
+            return 2
+        if args.interval <= 0:
+            logging.error("--interval must be greater than zero")
+            return 2
+        return run_daemon(lambda: refresh_once(args), interval=args.interval)
+    return refresh_once(args)
 
 
 if __name__ == "__main__":

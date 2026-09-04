@@ -11,6 +11,7 @@ and belong to the `spi` and `gpio` groups.
 ```bash
 python3 main.py --preview preview.png --json
 python3 main.py
+python3 main.py --daemon
 ```
 
 The first command fetches live usage and creates a PNG without changing the
@@ -23,19 +24,15 @@ CLI refresh flow and atomically writes rotated tokens back with mode `0600`.
 The usage URLs are internal ChatGPT and Anthropic endpoints and have no public
 stability guarantee. Future CLI updates may require adapting the parsers.
 
-## Automatic refresh
+## Daemon
 
-Example systemd service and timer units are in `systemd/`. They run as the
-logged-in `happylittle7` user every 15 minutes, so they can read that user's
-Codex login and access the SPI/GPIO device groups. Install them only after the
-manual display command succeeds.
+`main.py --daemon` is the single long-running process. It refreshes once at
+startup, every 5 minutes after the previous refresh, and whenever KEY4 is
+pressed. The example user service is `systemd/sablier.service`.
 
 ## KEY4 manual refresh
 
-`button_daemon.py` watches KEY4 on BCM GPIO 19. A press runs the same full
-Claude/Codex refresh as `main.py`. The input uses the Raspberry Pi pull-up and
-100 ms debounce; holding the button triggers only once until it is released.
-
-Install `systemd/sablier-button.service` as a user service to keep the watcher
-running. Concurrent timer and button refreshes are prevented by
-`output/refresh.lock`.
+The daemon watches KEY4 on BCM GPIO 19. A press runs the same full Claude/Codex
+refresh as `main.py`. The input uses the Raspberry Pi pull-up and 100 ms
+debounce; holding the button triggers only once. Concurrent daemon and manual
+refreshes are prevented by `output/refresh.lock`.

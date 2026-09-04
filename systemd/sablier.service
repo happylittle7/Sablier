@@ -1,16 +1,15 @@
 [Unit]
-Description=Sablier Codex e-paper usage display
+Description=Sablier e-paper dashboard daemon
 Wants=network-online.target
 After=network-online.target
 
 [Service]
-Type=oneshot
-User=happylittle7
-Group=happylittle7
-SupplementaryGroups=spi gpio
+Type=simple
 Environment=HOME=/home/happylittle7
 WorkingDirectory=/home/happylittle7/Developer/Sablier
-ExecStart=/usr/bin/python3 /home/happylittle7/Developer/Sablier/main.py
+ExecStart=/usr/bin/python3 /home/happylittle7/Developer/Sablier/main.py --daemon
+Restart=on-failure
+RestartSec=3s
 
 [Install]
-WantedBy=multi-user.target
+WantedBy=default.target
