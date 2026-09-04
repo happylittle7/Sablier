@@ -4,10 +4,14 @@ import unittest
 
 from sablier.claude_usage import ClaudeSnapshot
 from sablier.codex_usage import UsageSnapshot, UsageWindow
-from sablier.render import render_dashboard, render_usage
+from sablier.render import _reset_text, render_dashboard, render_usage
 
 
 class RenderTests(unittest.TestCase):
+    def test_full_allowance_without_reset_is_available_now(self) -> None:
+        self.assertEqual(_reset_text(None, 1000, 100), "Available now")
+        self.assertEqual(_reset_text(None, 1000, 80), "Reset in --")
+
     def test_renders_panel_dimensions(self) -> None:
         snapshot = UsageSnapshot(
             plan_type="plus",

@@ -101,12 +101,16 @@ def _draw_openai_logo(
                 draw.point((x + target_x, y + target_y), fill=0)
 
 
-def _draw_claude_logo(draw: ImageDraw.ImageDraw, x: int, y: int) -> None:
+def _draw_claude_logo(
+    draw: ImageDraw.ImageDraw, x: int, y: int, *, size: int = 22
+) -> None:
     """Draw a monochrome Claude mark derived from the supplied brand artwork."""
-    for row_y, row in enumerate(CLAUDE_LOGO):
-        for row_x, pixel in enumerate(row):
-            if pixel == "#":
-                draw.point((x + row_x, y + row_y), fill=0)
+    for target_y in range(size):
+        source_y = target_y * 22 // size
+        for target_x in range(size):
+            source_x = target_x * 22 // size
+            if CLAUDE_LOGO[source_y][source_x] == "#":
+                draw.point((x + target_x, y + target_y), fill=0)
 
 
 def _window_label(window: UsageWindow, fallback: str) -> str:
@@ -121,8 +125,12 @@ def _window_label(window: UsageWindow, fallback: str) -> str:
     return fallback
 
 
-def _reset_text(reset_at: int | None, now: int) -> str:
+def _reset_text(
+    reset_at: int | None, now: int, remaining_percent: float | None = None
+) -> str:
     if reset_at is None:
+        if remaining_percent is not None and remaining_percent >= 99.5:
+            return "Available now"
         return "Reset in --"
     remaining = max(0, reset_at - now)
     days, remainder = divmod(remaining, 86400)
@@ -163,7 +171,12 @@ def _draw_window(
         draw.rectangle(
             (bar_x + 2, bar_y + 2, bar_x + 2 + fill_w, bar_y + bar_h - 2), fill=0
         )
-    draw.text((59, y + 21), _reset_text(window.reset_at, now), font=small_font, fill=0)
+    draw.text(
+        (59, y + 21),
+        _reset_text(window.reset_at, now, window.remaining_percent),
+        font=small_font,
+        fill=0,
+    )
 
 
 def render_usage(snapshot: UsageSnapshot, now: int | None = None) -> Image.Image:
@@ -231,14 +244,19 @@ def _draw_column_window(
         draw.rectangle(
             (bar_x + 2, bar_y + 2, bar_x + 2 + fill_w, bar_y + bar_h - 2), fill=0
         )
-    draw.text((left, y + 35), _reset_text(window.reset_at, now), font=_font(9), fill=0)
+    draw.text(
+        (left, y + 35),
+        _reset_text(window.reset_at, now, window.remaining_percent),
+        font=_font(9),
+        fill=0,
+    )
 
 
 def _draw_plan_badge(
     draw: ImageDraw.ImageDraw, plan: str, y: int, *, right: int = 259
 ) -> None:
     text = plan.upper()
-    badge_font = _font(10, bold=True)
+    badge_font = _font(10)
     box = draw.textbbox((0, 0), text, font=badge_font)
     width = box[2] - box[0]
     draw.rounded_rectangle((right - width - 7, y, right, y + 16), radius=3, outline=0)
@@ -255,27 +273,27 @@ def render_dashboard(
     image = Image.new("1", (WIDTH, HEIGHT), 255)
     draw = ImageDraw.Draw(image)
 
-    _draw_claude_logo(draw, 7, 2)
+    _draw_claude_logo(draw, 8, 3, size=20)
     _draw_plan_badge(draw, claude.plan_type, 4, right=126)
     draw.line((5, 29, 126, 29), fill=0)
     _draw_column_window(
-        draw, claude.primary, label="5H", x=0, y=36, now=timestamp
+        draw, claude.primary, label="SESSION", x=0, y=36, now=timestamp
     )
     _draw_column_window(
-        draw, claude.secondary, label="WEEK", x=0, y=94, now=timestamp
+        draw, claude.secondary, label="WEEKLY", x=0, y=94, now=timestamp
     )
 
     _draw_openai_logo(draw, 139, 2, size=22)
     _draw_plan_badge(draw, codex.plan_type, 4, right=258)
     draw.line((137, 29, 258, 29), fill=0)
     _draw_column_window(
-        draw, codex.primary, label="5H", x=132, y=36, now=timestamp
+        draw, codex.primary, label="SESSION", x=132, y=36, now=timestamp
     )
     _draw_column_window(
-        draw, codex.secondary, label="WEEK", x=132, y=94, now=timestamp
+        draw, codex.secondary, label="WEEKLY", x=132, y=94, now=timestamp
     )
 
-    draw.rectangle((131, 2, 132, 155), fill=0)
+    draw.line((132, 2, 132, 155), fill=0)
 
     latest = max(codex.fetched_at, claude.fetched_at)
     footer = datetime.fromtimestamp(latest).strftime("UPDATED %H:%M")
@@ -283,5 +301,5 @@ def render_dashboard(
     footer_box = draw.textbbox((0, 0), footer, font=footer_font)
     footer_width = footer_box[2] - footer_box[0]
     draw.line((5, 157, 258, 157), fill=0)
-    draw.text(((WIDTH - footer_width) // 2, 162), footer, font=footer_font, fill=0)
+    draw.text(((WIDTH - footer_width) // 2, 164), footer, font=footer_font, fill=0)
     return image
