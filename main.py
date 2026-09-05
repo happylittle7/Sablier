@@ -26,6 +26,7 @@ from sablier.state import (
     save_display_mode,
     save_snapshots,
 )
+from sablier.weather import get_weather
 
 
 REFRESH_LOCK = Path("output/refresh.lock")
@@ -174,7 +175,14 @@ def update(args: argparse.Namespace, refresh_mode: str = "full") -> int:
 
 def update_clock(args: argparse.Namespace, refresh_mode: str = "full") -> int:
     try:
-        _present_image(args, render_clock(), refresh_mode)
+        weather, weather_warning = get_weather(force=refresh_mode == "full")
+        if weather_warning:
+            logging.warning("Weather refresh failed; using cached data when available")
+        _present_image(
+            args,
+            render_clock(weather=weather, weather_warning=weather_warning),
+            refresh_mode,
+        )
         return 0
     except EpaperError as exc:
         logging.error("%s", exc)

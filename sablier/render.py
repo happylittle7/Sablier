@@ -10,6 +10,7 @@ from PIL import Image, ImageDraw, ImageFont
 
 from .claude_usage import ClaudeSnapshot
 from .codex_usage import UsageSnapshot, UsageWindow
+from .weather import WeatherSnapshot, weather_kind, weather_label
 
 
 WIDTH = 264
@@ -100,6 +101,13 @@ def _mono_font(size: int) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
         return _font(size)
 
 
+def _mono_bold_font(size: int) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
+    try:
+        return ImageFont.truetype(str(FONT_MONO_BOLD), size)
+    except OSError:
+        return _font(size, bold=True)
+
+
 def _reset_font(size: int) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
     try:
         return ImageFont.truetype(str(FONT_RESET_MONO), size)
@@ -132,6 +140,74 @@ def _draw_warning_icon(draw: ImageDraw.ImageDraw, x: int, y: int) -> None:
         for row_x, pixel in enumerate(row):
             if pixel == "#":
                 draw.point((x + row_x, y + row_y), fill=0)
+
+
+def _draw_sun(draw: ImageDraw.ImageDraw, x: int, y: int) -> None:
+    draw.ellipse((x + 8, y + 8, x + 18, y + 18), outline=0, width=2)
+    rays = (
+        (13, 2, 13, 6),
+        (13, 20, 13, 24),
+        (2, 13, 6, 13),
+        (20, 13, 24, 13),
+        (5, 5, 8, 8),
+        (18, 18, 21, 21),
+        (18, 8, 21, 5),
+        (5, 21, 8, 18),
+    )
+    for x1, y1, x2, y2 in rays:
+        draw.line((x + x1, y + y1, x + x2, y + y2), fill=0, width=2)
+
+
+def _draw_cloud(draw: ImageDraw.ImageDraw, x: int, y: int) -> None:
+    draw.ellipse((x + 3, y + 9, x + 13, y + 19), fill=0)
+    draw.ellipse((x + 8, y + 4, x + 20, y + 19), fill=0)
+    draw.ellipse((x + 15, y + 8, x + 25, y + 19), fill=0)
+    draw.rectangle((x + 7, y + 11, x + 21, y + 19), fill=0)
+
+
+def _draw_weather_icon(
+    draw: ImageDraw.ImageDraw, weather: WeatherSnapshot, x: int, y: int
+) -> None:
+    kind = weather_kind(weather.weather_code, weather.is_day)
+    if kind == "clear":
+        _draw_sun(draw, x, y)
+        return
+    if kind == "night":
+        draw.ellipse((x + 5, y + 3, x + 21, y + 21), fill=0)
+        draw.ellipse((x + 11, y, x + 24, y + 16), fill=255)
+        return
+    if kind == "partly_cloudy":
+        _draw_sun(draw, x - 2, y - 3)
+        _draw_cloud(draw, x + 3, y + 5)
+        return
+    if kind == "fog":
+        _draw_cloud(draw, x, y - 4)
+        for offset in (17, 21, 25):
+            draw.line((x + 3, y + offset, x + 24, y + offset), fill=0, width=2)
+        return
+
+    _draw_cloud(draw, x, y - 3)
+    if kind == "rain":
+        for offset in (6, 13, 20):
+            draw.line(
+                (x + offset, y + 19, x + offset - 2, y + 25), fill=0, width=2
+            )
+    elif kind == "snow":
+        for offset in (7, 15, 23):
+            draw.line((x + offset - 2, y + 22, x + offset + 2, y + 22), fill=0)
+            draw.line((x + offset, y + 20, x + offset, y + 24), fill=0)
+    elif kind == "thunder":
+        draw.polygon(
+            (
+                (x + 14, y + 17),
+                (x + 9, y + 25),
+                (x + 14, y + 24),
+                (x + 11, y + 30),
+                (x + 21, y + 20),
+                (x + 16, y + 21),
+            ),
+            fill=0,
+        )
 
 
 def _window_label(window: UsageWindow, fallback: str) -> str:
@@ -345,25 +421,79 @@ def _centered_text(
     draw.text(((WIDTH - width) // 2, y), text, font=font, fill=0)
 
 
-def render_clock(now: datetime | None = None) -> Image.Image:
+def _column_text(
+    draw: ImageDraw.ImageDraw,
+    center_x: int,
+    y: int,
+    text: str,
+    font: ImageFont.FreeTypeFont | ImageFont.ImageFont,
+) -> None:
+    box = draw.textbbox((0, 0), text, font=font)
+    width = box[2] - box[0]
+    draw.text((center_x - width // 2, y), text, font=font, fill=0)
+
+
+def render_clock(
+    now: datetime | None = None,
+    weather: WeatherSnapshot | None = None,
+    *,
+    weather_warning: bool = False,
+) -> Image.Image:
     """Render a quiet minute-resolution clock for the e-paper display."""
     current = now or datetime.now().astimezone()
     image = Image.new("1", (WIDTH, HEIGHT), 255)
     draw = ImageDraw.Draw(image)
 
-    _centered_text(draw, 5, current.strftime("%A").upper(), _mono_font(14))
-    _centered_text(draw, 25, current.strftime("%b %d, %Y").upper(), _font(18))
-    draw.line((28, 51, 235, 51), fill=0)
+    draw.text((8, 3), "BANQIAO", font=_mono_bold_font(11), fill=0)
+    date_text = f"{current.strftime('%a').upper()} · {current.strftime('%b %d').upper()}"
+    draw.text((8, 17), date_text, font=_mono_font(9), fill=0)
+    if weather is not None:
+        _draw_weather_icon(draw, weather, 187, 1)
+        draw.text(
+            (218, 4),
+            f"{round(weather.temperature):.0f}°C",
+            font=_font(17, bold=True),
+            fill=0,
+        )
+    else:
+        draw.text((218, 4), "--°C", font=_font(17, bold=True), fill=0)
+    if weather_warning:
+        _draw_warning_icon(draw, 166, 5)
 
-    time_text = current.strftime("%H:%M")
-    try:
-        time_font = ImageFont.truetype(str(FONT_MONO_BOLD), 60)
-    except OSError:
-        time_font = _font(60, bold=True)
-    time_box = draw.textbbox((0, 0), time_text, font=time_font)
-    time_width = time_box[2] - time_box[0]
-    draw.text(((WIDTH - time_width) // 2, 57), time_text, font=time_font, fill=0)
+    hour, minute = current.strftime("%H:%M").split(":")
+    digit_font = _font(66, bold=True)
+    colon_font = _font(48, bold=True)
+    gap = 4
+    hour_width = draw.textlength(hour, font=digit_font)
+    colon_width = draw.textlength(":", font=colon_font)
+    minute_width = draw.textlength(minute, font=digit_font)
+    time_width = hour_width + gap + colon_width + gap + minute_width
+    x = (WIDTH - time_width) / 2
+    draw.text((x, 36), hour, font=digit_font, fill=0)
+    x += hour_width + gap
+    draw.text((x, 42), ":", font=colon_font, fill=0)
+    x += colon_width + gap
+    draw.text((x, 36), minute, font=digit_font, fill=0)
 
-    draw.line((28, 145, 235, 145), fill=0)
-    _centered_text(draw, 151, "ASIA / TAIPEI", _mono_font(11))
+    condition = (
+        weather_label(weather.weather_code, weather.is_day)
+        if weather is not None
+        else "WEATHER UNAVAILABLE"
+    )
+    _centered_text(draw, 108, condition, _mono_font(10))
+    draw.line((8, 128, 255, 128), fill=0)
+    if weather is not None:
+        values = (
+            f"{round(weather.high):.0f}°C",
+            f"{round(weather.low):.0f}°C",
+            f"{weather.rain_probability}%",
+        )
+    else:
+        values = ("--°C", "--°C", "--%")
+    centers = (45, 132, 219)
+    for center, label, value in zip(centers, ("HIGH", "LOW", "RAIN"), values):
+        _column_text(draw, center, 134, label, _mono_font(8))
+        _column_text(draw, center, 146, value, _mono_bold_font(15))
+    draw.line((88, 135, 88, 168), fill=0)
+    draw.line((176, 135, 176, 168), fill=0)
     return image

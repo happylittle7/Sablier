@@ -5,9 +5,10 @@ After=network-online.target
 
 [Service]
 Type=simple
-Environment=HOME=/home/happylittle7
-WorkingDirectory=/home/happylittle7/Developer/Sablier
-ExecStart=/usr/bin/python3 /home/happylittle7/Developer/Sablier/main.py --daemon
+Environment=HOME=%h
+EnvironmentFile=-%h/.config/sablier/weather.env
+WorkingDirectory=%h/Developer/Sablier
+ExecStart=/usr/bin/python3 %h/Developer/Sablier/main.py --daemon
 Restart=on-failure
 RestartSec=3s
 
