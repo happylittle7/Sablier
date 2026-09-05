@@ -1,8 +1,20 @@
 from __future__ import annotations
 
+import json
+import tempfile
+import time
 import unittest
+from pathlib import Path
+from unittest.mock import patch
 
-from sablier.claude_usage import ClaudeUsageError, parse_claude_usage
+from sablier.claude_usage import (
+    OAUTH_HEADERS,
+    REFRESH_URL,
+    ClaudeAuthStore,
+    ClaudeUsageError,
+    fetch_claude_usage,
+    parse_claude_usage,
+)
 
 
 class ParseClaudeUsageTests(unittest.TestCase):
@@ -30,6 +42,48 @@ class ParseClaudeUsageTests(unittest.TestCase):
     def test_rejects_missing_windows(self) -> None:
         with self.assertRaises(ClaudeUsageError):
             parse_claude_usage({}, plan_type="pro")
+
+    def test_expired_login_refresh_uses_claude_code_headers(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / ".credentials.json"
+            path.write_text(
+                json.dumps(
+                    {
+                        "claudeAiOauth": {
+                            "accessToken": "old-access",
+                            "refreshToken": "old-refresh",
+                            "expiresAt": int((time.time() - 60) * 1000),
+                            "scopes": ["user:profile"],
+                            "subscriptionType": "pro",
+                        }
+                    }
+                ),
+                encoding="utf-8",
+            )
+            with patch(
+                "sablier.claude_usage._request_json",
+                return_value={
+                    "access_token": "new-access",
+                    "refresh_token": "new-refresh",
+                    "expires_in": 3600,
+                },
+            ) as request:
+                access, plan = ClaudeAuthStore(path).access()
+
+            self.assertEqual((access, plan), ("new-access", "pro"))
+            self.assertEqual(request.call_args.args, (REFRESH_URL,))
+            self.assertEqual(request.call_args.kwargs["headers"], OAUTH_HEADERS)
+            saved = json.loads(path.read_text(encoding="utf-8"))["claudeAiOauth"]
+            self.assertEqual(saved["refreshToken"], "new-refresh")
+
+    def test_active_cooldown_skips_auth_and_network(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            cooldown = Path(directory) / "cooldown"
+            cooldown.write_text(str(time.time() + 600), encoding="utf-8")
+            with patch("sablier.claude_usage.ClaudeAuthStore.access") as access:
+                with self.assertRaisesRegex(ClaudeUsageError, "cooling down"):
+                    fetch_claude_usage(cooldown_path=cooldown)
+            access.assert_not_called()
 
 
 if __name__ == "__main__":

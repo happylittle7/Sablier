@@ -18,8 +18,14 @@ from sablier.claude_usage import ClaudeSnapshot, ClaudeUsageError, fetch_claude_
 from sablier.codex_usage import UsageError, UsageSnapshot, fetch_usage
 from sablier.daemon import DEFAULT_INTERVAL_SECONDS, run_daemon
 from sablier.epaper import EPD2in7V2, EpaperError
-from sablier.render import render_dashboard
-from sablier.state import CachedSnapshots, load_snapshots, save_snapshots
+from sablier.render import render_clock, render_dashboard
+from sablier.state import (
+    CachedSnapshots,
+    load_display_mode,
+    load_snapshots,
+    save_display_mode,
+    save_snapshots,
+)
 
 
 REFRESH_LOCK = Path("output/refresh.lock")
@@ -39,7 +45,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--daemon",
         action="store_true",
-        help="continuously refresh every 5 minutes and when KEY4 is pressed",
+        help="run the display mode and button controller continuously",
+    )
+    parser.add_argument(
+        "--mode",
+        choices=("usage", "clock"),
+        help="display one mode (daemon default: last selected mode)",
     )
     parser.add_argument(
         "--interval",
@@ -83,6 +94,30 @@ def _save_displayed_frame(image: Image.Image) -> None:
     temporary = DISPLAYED_FRAME.with_suffix(".tmp.png")
     image.save(temporary)
     temporary.replace(DISPLAYED_FRAME)
+
+
+def _present_image(
+    args: argparse.Namespace, image: Image.Image, refresh_mode: str
+) -> None:
+    output_path = args.preview or Path("output/latest.png")
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    image.save(output_path)
+    logging.info("Saved rendered screen to %s", output_path)
+    if args.preview:
+        return
+
+    base_image = _load_displayed_frame() if refresh_mode == "partial" else None
+    actual_mode = "partial" if base_image is not None else "full"
+    if refresh_mode == "partial" and base_image is None:
+        logging.warning("No valid displayed frame; falling back to full refresh")
+    logging.info("Refreshing e-paper display (%s mode)", actual_mode)
+    with EPD2in7V2() as epd:
+        if base_image is not None:
+            epd.display_partial(image, base_image)
+        else:
+            epd.display(image)
+    _save_displayed_frame(image)
+    logging.info("Display updated")
 
 
 def update(args: argparse.Namespace, refresh_mode: str = "full") -> int:
@@ -130,43 +165,43 @@ def update(args: argparse.Namespace, refresh_mode: str = "full") -> int:
             codex_warning=codex_warning,
             claude_warning=claude_warning,
         )
-        if args.preview:
-            output_path = args.preview
-        else:
-            output_path = Path("output/latest.png")
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        image.save(output_path)
-        logging.info("Saved rendered dashboard to %s", output_path)
-        if not args.preview:
-            base_image = _load_displayed_frame() if refresh_mode == "partial" else None
-            actual_mode = "partial" if base_image is not None else "full"
-            if refresh_mode == "partial" and base_image is None:
-                logging.warning("No valid displayed frame; falling back to full refresh")
-            logging.info("Refreshing e-paper display (%s mode)", actual_mode)
-            with EPD2in7V2() as epd:
-                if base_image is not None:
-                    epd.display_partial(image, base_image)
-                else:
-                    epd.display(image)
-            _save_displayed_frame(image)
-            logging.info("Display updated")
+        _present_image(args, image, refresh_mode)
         return 0
     except (UsageError, ClaudeUsageError, EpaperError) as exc:
         logging.error("%s", exc)
         return 1
 
 
-def refresh_once(args: argparse.Namespace, refresh_mode: str = "full") -> int:
+def update_clock(args: argparse.Namespace, refresh_mode: str = "full") -> int:
+    try:
+        _present_image(args, render_clock(), refresh_mode)
+        return 0
+    except EpaperError as exc:
+        logging.error("%s", exc)
+        return 1
+
+
+def refresh_once(
+    args: argparse.Namespace,
+    display_mode: str = "usage",
+    refresh_mode: str = "full",
+) -> int:
     with refresh_lock() as acquired:
         if not acquired:
             logging.info("Another refresh is already running; skipping")
             return 0
+        if display_mode == "clock":
+            return update_clock(args, refresh_mode)
         return update(args, refresh_mode)
 
 
 def main() -> int:
     args = parse_args()
     logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
+    selected_mode = args.mode or (load_display_mode() if args.daemon else "usage")
+    if args.json and selected_mode != "usage":
+        logging.error("--json is only available in usage mode")
+        return 2
     if args.daemon:
         if args.preview or args.json:
             logging.error("--daemon cannot be combined with --preview or --json")
@@ -175,9 +210,12 @@ def main() -> int:
             logging.error("--interval must be greater than zero")
             return 2
         return run_daemon(
-            lambda mode: refresh_once(args, mode), interval=args.interval
+            lambda display, refresh: refresh_once(args, display, refresh),
+            interval=args.interval,
+            initial_mode=selected_mode,
+            on_mode_change=save_display_mode,
         )
-    return refresh_once(args)
+    return refresh_once(args, selected_mode)
 
 
 if __name__ == "__main__":

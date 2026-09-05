@@ -14,6 +14,8 @@ from .codex_usage import UsageSnapshot, UsageWindow
 
 
 DEFAULT_CACHE_PATH = Path("output/usage-cache.json")
+DEFAULT_DISPLAY_STATE_PATH = Path("output/display-state.json")
+DISPLAY_MODES = frozenset({"usage", "clock"})
 
 
 @dataclass(frozen=True)
@@ -97,6 +99,37 @@ def save_snapshots(
         os.fchmod(fd, 0o600)
         with os.fdopen(fd, "w", encoding="utf-8") as output:
             json.dump(payload, output, separators=(",", ":"))
+            output.write("\n")
+            output.flush()
+            os.fsync(output.fileno())
+        os.replace(temporary, path)
+    except BaseException:
+        try:
+            os.unlink(temporary)
+        except FileNotFoundError:
+            pass
+        raise
+
+
+def load_display_mode(path: Path = DEFAULT_DISPLAY_STATE_PATH) -> str:
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (FileNotFoundError, OSError, json.JSONDecodeError):
+        return "usage"
+    if isinstance(value, dict) and value.get("mode") in DISPLAY_MODES:
+        return str(value["mode"])
+    return "usage"
+
+
+def save_display_mode(mode: str, path: Path = DEFAULT_DISPLAY_STATE_PATH) -> None:
+    if mode not in DISPLAY_MODES:
+        raise ValueError(f"unsupported display mode: {mode}")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, temporary = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.")
+    try:
+        os.fchmod(fd, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as output:
+            json.dump({"mode": mode}, output, separators=(",", ":"))
             output.write("\n")
             output.flush()
             os.fsync(output.fileno())

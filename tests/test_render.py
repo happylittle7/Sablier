@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest
+from datetime import datetime
 
 from PIL import ImageChops
 
@@ -10,6 +11,7 @@ from sablier.render import (
     CLAUDE_LOGO,
     OPENAI_LOGO,
     _reset_text,
+    render_clock,
     render_dashboard,
     render_usage,
 )
@@ -36,6 +38,13 @@ class RenderTests(unittest.TestCase):
         image = render_usage(snapshot, now=1000)
         self.assertEqual(image.size, (264, 176))
         self.assertEqual(image.mode, "1")
+
+    def test_clock_changes_on_the_next_minute(self) -> None:
+        first = render_clock(datetime(2026, 9, 5, 13, 4))
+        second = render_clock(datetime(2026, 9, 5, 13, 5))
+        self.assertEqual(first.size, (264, 176))
+        self.assertEqual(first.mode, "1")
+        self.assertIsNotNone(ImageChops.difference(first, second).getbbox())
 
     def test_renders_combined_dashboard(self) -> None:
         codex = UsageSnapshot(

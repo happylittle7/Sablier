@@ -17,6 +17,7 @@ HEIGHT = 176
 FONT_REGULAR = Path("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf")
 FONT_BOLD = Path("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf")
 FONT_MONO = Path("/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf")
+FONT_MONO_BOLD = Path("/usr/share/fonts/truetype/dejavu/DejaVuSansMono-Bold.ttf")
 FONT_RESET_MONO = Path("/usr/share/fonts/truetype/noto/NotoSansMono-Regular.ttf")
 OPENAI_LOGO = (
     "........####..........",
@@ -330,4 +331,39 @@ def render_dashboard(
     footer_width = footer_box[2] - footer_box[0]
     draw.line((5, 157, 258, 157), fill=0)
     draw.text(((WIDTH - footer_width) // 2, 164), footer, font=footer_font, fill=0)
+    return image
+
+
+def _centered_text(
+    draw: ImageDraw.ImageDraw,
+    y: int,
+    text: str,
+    font: ImageFont.FreeTypeFont | ImageFont.ImageFont,
+) -> None:
+    box = draw.textbbox((0, 0), text, font=font)
+    width = box[2] - box[0]
+    draw.text(((WIDTH - width) // 2, y), text, font=font, fill=0)
+
+
+def render_clock(now: datetime | None = None) -> Image.Image:
+    """Render a quiet minute-resolution clock for the e-paper display."""
+    current = now or datetime.now().astimezone()
+    image = Image.new("1", (WIDTH, HEIGHT), 255)
+    draw = ImageDraw.Draw(image)
+
+    _centered_text(draw, 5, current.strftime("%A").upper(), _mono_font(14))
+    _centered_text(draw, 25, current.strftime("%b %d, %Y").upper(), _font(18))
+    draw.line((28, 51, 235, 51), fill=0)
+
+    time_text = current.strftime("%H:%M")
+    try:
+        time_font = ImageFont.truetype(str(FONT_MONO_BOLD), 60)
+    except OSError:
+        time_font = _font(60, bold=True)
+    time_box = draw.textbbox((0, 0), time_text, font=time_font)
+    time_width = time_box[2] - time_box[0]
+    draw.text(((WIDTH - time_width) // 2, 57), time_text, font=time_font, fill=0)
+
+    draw.line((28, 145, 235, 145), fill=0)
+    _centered_text(draw, 151, "ASIA / TAIPEI", _mono_font(11))
     return image

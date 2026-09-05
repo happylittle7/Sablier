@@ -6,7 +6,13 @@ from pathlib import Path
 
 from sablier.claude_usage import ClaudeSnapshot
 from sablier.codex_usage import UsageSnapshot, UsageWindow
-from sablier.state import CachedSnapshots, load_snapshots, save_snapshots
+from sablier.state import (
+    CachedSnapshots,
+    load_display_mode,
+    load_snapshots,
+    save_display_mode,
+    save_snapshots,
+)
 
 
 class StateTests(unittest.TestCase):
@@ -30,6 +36,20 @@ class StateTests(unittest.TestCase):
             path = Path(directory) / "usage-cache.json"
             path.write_text("not json", encoding="utf-8")
             self.assertEqual(load_snapshots(path), CachedSnapshots())
+
+    def test_round_trips_display_mode(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "display-state.json"
+            self.assertEqual(load_display_mode(path), "usage")
+            save_display_mode("clock", path)
+            self.assertEqual(load_display_mode(path), "clock")
+            self.assertEqual(path.stat().st_mode & 0o777, 0o600)
+
+    def test_invalid_display_mode_falls_back_to_usage(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "display-state.json"
+            path.write_text('{"mode":"unknown"}', encoding="utf-8")
+            self.assertEqual(load_display_mode(path), "usage")
 
 
 if __name__ == "__main__":
