@@ -47,6 +47,13 @@ class WeatherTests(unittest.TestCase):
                                                 "ElementValue": [
                                                     {"ProbabilityOfPrecipitation": "40"}
                                                 ],
+                                            },
+                                            {
+                                                "StartTime": "2026-09-06T03:00:00+08:00",
+                                                "EndTime": "2026-09-06T06:00:00+08:00",
+                                                "ElementValue": [
+                                                    {"ProbabilityOfPrecipitation": "80"}
+                                                ],
                                             }
                                         ],
                                     },
@@ -101,6 +108,8 @@ class WeatherTests(unittest.TestCase):
         self.assertEqual(snapshot.low, 24.7)
         self.assertEqual(snapshot.rain_probability, 40)
         self.assertEqual(snapshot.source, "cwa")
+        self.assertEqual(snapshot.rain_period_start, 1788624000)
+        self.assertEqual(snapshot.rain_period_end, 1788634800)
 
     def test_parses_current_and_daily_weather(self) -> None:
         snapshot = _parse_payload(
@@ -120,6 +129,7 @@ class WeatherTests(unittest.TestCase):
         )
         self.assertEqual(snapshot.temperature, 27.4)
         self.assertEqual(snapshot.rain_probability, 60)
+        self.assertIsNone(snapshot.rain_period_start)
         self.assertEqual(weather_kind(snapshot.weather_code), "partly_cloudy")
 
     def test_fresh_cache_avoids_network(self) -> None:

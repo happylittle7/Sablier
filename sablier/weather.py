@@ -44,6 +44,8 @@ class WeatherSnapshot:
     rain_probability: int
     fetched_at: int
     source: str = "open-meteo"
+    rain_period_start: int | None = None
+    rain_period_end: int | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -55,6 +57,8 @@ class WeatherSnapshot:
             "rain_probability": self.rain_probability,
             "fetched_at": self.fetched_at,
             "source": self.source,
+            "rain_period_start": self.rain_period_start,
+            "rain_period_end": self.rain_period_end,
         }
 
     @classmethod
@@ -71,6 +75,16 @@ class WeatherSnapshot:
                 rain_probability=max(0, min(100, int(value["rain_probability"]))),
                 fetched_at=int(value["fetched_at"]),
                 source=str(value.get("source", "open-meteo")),
+                rain_period_start=(
+                    int(value["rain_period_start"])
+                    if value.get("rain_period_start") is not None
+                    else None
+                ),
+                rain_period_end=(
+                    int(value["rain_period_end"])
+                    if value.get("rain_period_end") is not None
+                    else None
+                ),
             )
         except (KeyError, TypeError, ValueError):
             return None
@@ -225,6 +239,31 @@ def _cwa_code(weather: str) -> int:
     return 3
 
 
+def _active_or_next_period(periods: list[Any], current: datetime) -> Any:
+    """Select CWA's fixed period containing now, or the nearest future one."""
+    parsed: list[tuple[datetime, datetime, Any]] = []
+    try:
+        for item in periods:
+            parsed.append(
+                (
+                    datetime.fromisoformat(item["StartTime"]),
+                    datetime.fromisoformat(item["EndTime"]),
+                    item,
+                )
+            )
+    except (KeyError, TypeError, ValueError) as exc:
+        raise WeatherError("CWA returned an invalid forecast period") from exc
+    if not parsed:
+        raise WeatherError("CWA returned no forecast periods")
+    for start, end, item in parsed:
+        if start <= current < end:
+            return item
+    for start, _end, item in parsed:
+        if start > current:
+            return item
+    return parsed[-1][2]
+
+
 def _parse_cwa_payloads(
     forecast: Any,
     observation: Any | None,
@@ -284,23 +323,13 @@ def _parse_cwa_payloads(
         high_candidates.append(observed_temperature)
         low_candidates.append(observed_temperature)
 
-    rain_periods = _forecast_element(location, "3小時降雨機率")
-    rain_values = [
-        _number(item, "ProbabilityOfPrecipitation")
-        for item in rain_periods
-        if datetime.fromisoformat(item["StartTime"]).date() == current.date()
-    ]
-    conditions = _forecast_element(location, "天氣現象")
-    active = next(
-        (
-            item
-            for item in conditions
-            if datetime.fromisoformat(item["StartTime"])
-            <= current
-            < datetime.fromisoformat(item["EndTime"])
-        ),
-        conditions[0] if conditions else None,
+    rain_period = _active_or_next_period(
+        _forecast_element(location, "3小時降雨機率"), current
     )
+    rain_start = datetime.fromisoformat(rain_period["StartTime"])
+    rain_end = datetime.fromisoformat(rain_period["EndTime"])
+    conditions = _forecast_element(location, "天氣現象")
+    active = _active_or_next_period(conditions, current)
     try:
         description = str(active["ElementValue"][0]["Weather"])
     except (KeyError, IndexError, TypeError) as exc:
@@ -316,9 +345,11 @@ def _parse_cwa_payloads(
         is_day=6 <= current.hour < 18,
         high=max(high_candidates),
         low=min(low_candidates),
-        rain_probability=round(max(rain_values)) if rain_values else 0,
+        rain_probability=round(_number(rain_period, "ProbabilityOfPrecipitation")),
         fetched_at=fetched_at,
         source="cwa",
+        rain_period_start=int(rain_start.timestamp()),
+        rain_period_end=int(rain_end.timestamp()),
     )
 
 

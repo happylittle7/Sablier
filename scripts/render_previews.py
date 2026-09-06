@@ -65,6 +65,8 @@ def main() -> None:
         rain_probability=60,
         fetched_at=timestamp,
         source="cwa",
+        rain_period_start=int(now.replace(minute=0).timestamp()),
+        rain_period_end=int((now.replace(minute=0) + timedelta(hours=3)).timestamp()),
     )
 
     OUTPUT_DIRECTORY.mkdir(parents=True, exist_ok=True)

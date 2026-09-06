@@ -18,7 +18,7 @@ Sablier 是一個為 Raspberry Pi 與 Waveshare 2.7 吋黑白電子紙設計的�
 - 自動沿用 Codex CLI 與 Claude Code 的 OAuth 登入，必要時刷新 access token。
 - 個別服務或網路失敗時保留最後成功資料，並在對應 Logo 旁顯示警告圖示。
 - KEY1/KEY2 切換使用量及時鐘模式，KEY4 隨時強制刷新目前畫面。
-- 時鐘模式顯示板橋目前溫度、天氣、高低溫與今日最高降雨機率。
+- 時鐘模式顯示板橋目前溫度、天氣、高低溫與目前 3 小時區段的降雨機率。
 - 有中央氣象署 API key 時優先使用 CWA，否則自動使用免 key 的 Open-Meteo。
 - 支援 Waveshare V2 局部刷新，並定期全面刷新以降低殘影。
 - 每次刷新完成都讓面板進入 sleep 並關閉 HAT 電源腳位，避免面板長時間維持高電壓。

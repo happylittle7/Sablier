@@ -433,6 +433,82 @@ def _column_text(
     draw.text((center_x - width // 2, y), text, font=font, fill=0)
 
 
+def _draw_arrow_icon(
+    draw: ImageDraw.ImageDraw, x: int, y: int, *, up: bool
+) -> None:
+    """Draw a crisp filled temperature trend arrow."""
+    if up:
+        draw.polygon(
+            (
+                (x + 5, y),
+                (x + 10, y + 6),
+                (x + 7, y + 6),
+                (x + 7, y + 13),
+                (x + 3, y + 13),
+                (x + 3, y + 6),
+                (x, y + 6),
+            ),
+            fill=0,
+        )
+    else:
+        draw.polygon(
+            (
+                (x + 3, y),
+                (x + 7, y),
+                (x + 7, y + 7),
+                (x + 10, y + 7),
+                (x + 5, y + 13),
+                (x, y + 7),
+                (x + 3, y + 7),
+            ),
+            fill=0,
+        )
+
+
+def _draw_rain_icon(draw: ImageDraw.ImageDraw, x: int, y: int) -> None:
+    """Draw an umbrella that reads clearly as rain at e-paper resolution."""
+    draw.text((x, y - 3), "☂", font=_font(18, bold=True), fill=0)
+
+
+def _draw_clock_metric(
+    draw: ImageDraw.ImageDraw,
+    *,
+    center_x: int,
+    value: str,
+    caption: str,
+    icon: str,
+) -> None:
+    value_font = _font(16, bold=True)
+    caption_font = _font(11)
+    value_width = draw.textlength(value, font=value_font)
+    icon_width = 16 if icon == "rain" else 10
+    gap = 4
+    left = round(center_x - (icon_width + gap + value_width) / 2)
+    if icon == "high":
+        _draw_arrow_icon(draw, left, 135, up=True)
+    elif icon == "low":
+        _draw_arrow_icon(draw, left, 135, up=False)
+    else:
+        _draw_rain_icon(draw, left, 134)
+    draw.text((left + icon_width + gap, 131), value, font=value_font, fill=0)
+    _column_text(draw, center_x, 156, caption, caption_font)
+
+
+def _rain_period_label(
+    weather: WeatherSnapshot | None, current: datetime
+) -> str:
+    if (
+        weather is None
+        or weather.rain_period_start is None
+        or weather.rain_period_end is None
+    ):
+        return "TODAY" if weather is not None else "RAIN"
+    timezone = current.tzinfo
+    start = datetime.fromtimestamp(weather.rain_period_start, timezone)
+    end = datetime.fromtimestamp(weather.rain_period_end, timezone)
+    return f"{start:%H}–{end:%H}"
+
+
 def render_clock(
     now: datetime | None = None,
     weather: WeatherSnapshot | None = None,
@@ -445,8 +521,8 @@ def render_clock(
     draw = ImageDraw.Draw(image)
 
     draw.text((8, 3), "BANQIAO", font=_mono_bold_font(11), fill=0)
-    date_text = f"{current.strftime('%a').upper()} · {current.strftime('%b %d').upper()}"
-    draw.text((8, 17), date_text, font=_mono_font(9), fill=0)
+    date_text = f"{current.strftime('%a').upper()}  {current.strftime('%b %d').upper()}"
+    draw.text((8, 17), date_text, font=_font(10, bold=True), fill=0)
     if weather is not None:
         _draw_weather_icon(draw, weather, 187, 1)
         draw.text(
@@ -490,10 +566,17 @@ def render_clock(
         )
     else:
         values = ("--°C", "--°C", "--%")
-    centers = (45, 132, 219)
-    for center, label, value in zip(centers, ("HIGH", "LOW", "RAIN"), values):
-        _column_text(draw, center, 134, label, _mono_font(8))
-        _column_text(draw, center, 146, value, _mono_bold_font(15))
-    draw.line((88, 135, 88, 168), fill=0)
-    draw.line((176, 135, 176, 168), fill=0)
+    captions = ("HIGH", "LOW", _rain_period_label(weather, current))
+    for center, value, caption, icon in zip(
+        (45, 132, 219), values, captions, ("high", "low", "rain")
+    ):
+        _draw_clock_metric(
+            draw,
+            center_x=center,
+            value=value,
+            caption=caption,
+            icon=icon,
+        )
+    draw.line((88, 133, 88, 170), fill=0)
+    draw.line((176, 133, 176, 170), fill=0)
     return image
