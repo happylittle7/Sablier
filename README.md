@@ -70,7 +70,7 @@ Sablier 只使用 Python 標準函式庫、Pillow、gpiozero 與 spidev，不需
 
 ```bash
 sudo apt update
-sudo apt install -y python3-pil python3-gpiozero python3-spidev \
+sudo apt install -y curl python3-pil python3-gpiozero python3-spidev \
   fonts-dejavu-core fonts-noto-mono
 ```
 
@@ -226,6 +226,7 @@ Sablier 不會要求你把 token 複製進專案，也不會將 token 寫入 log
 | `weather-cache.json` | 最後成功的天氣資料 |
 | `display-state.json` | 最後選擇的模式 |
 | `claude-cooldown` | Claude 429 冷卻截止時間 |
+| `claude-refresh-diagnostic.json` | 最近一次 Claude token refresh 失敗的安全診斷資訊（不含 token） |
 | `refresh.lock` | 避免並行刷新 |
 
 ## 疑難排解
