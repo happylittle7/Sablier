@@ -12,7 +12,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -36,6 +36,41 @@ class WeatherError(RuntimeError):
 
 
 @dataclass(frozen=True)
+class WeatherPeriod:
+    start: int
+    end: int
+    temperature: float
+    weather_code: int
+    rain_probability: int
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "start": self.start,
+            "end": self.end,
+            "temperature": self.temperature,
+            "weather_code": self.weather_code,
+            "rain_probability": self.rain_probability,
+        }
+
+    @classmethod
+    def from_dict(cls, value: Any) -> WeatherPeriod | None:
+        if not isinstance(value, dict):
+            return None
+        try:
+            return cls(
+                start=int(value["start"]),
+                end=int(value["end"]),
+                temperature=float(value["temperature"]),
+                weather_code=int(value["weather_code"]),
+                rain_probability=max(
+                    0, min(100, int(value["rain_probability"]))
+                ),
+            )
+        except (KeyError, TypeError, ValueError):
+            return None
+
+
+@dataclass(frozen=True)
 class WeatherSnapshot:
     temperature: float
     weather_code: int
@@ -47,6 +82,9 @@ class WeatherSnapshot:
     source: str = "open-meteo"
     rain_period_start: int | None = None
     rain_period_end: int | None = None
+    apparent_temperature: float | None = None
+    humidity: int | None = None
+    forecast_periods: tuple[WeatherPeriod, ...] = ()
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -60,6 +98,9 @@ class WeatherSnapshot:
             "source": self.source,
             "rain_period_start": self.rain_period_start,
             "rain_period_end": self.rain_period_end,
+            "apparent_temperature": self.apparent_temperature,
+            "humidity": self.humidity,
+            "forecast_periods": [period.to_dict() for period in self.forecast_periods],
         }
 
     @classmethod
@@ -67,6 +108,11 @@ class WeatherSnapshot:
         if not isinstance(value, dict):
             return None
         try:
+            periods = tuple(
+                period
+                for item in value.get("forecast_periods", [])
+                if (period := WeatherPeriod.from_dict(item)) is not None
+            )
             return cls(
                 temperature=float(value["temperature"]),
                 weather_code=int(value["weather_code"]),
@@ -86,6 +132,17 @@ class WeatherSnapshot:
                     if value.get("rain_period_end") is not None
                     else None
                 ),
+                apparent_temperature=(
+                    float(value["apparent_temperature"])
+                    if value.get("apparent_temperature") is not None
+                    else None
+                ),
+                humidity=(
+                    max(0, min(100, int(value["humidity"])))
+                    if value.get("humidity") is not None
+                    else None
+                ),
+                forecast_periods=periods,
             )
         except (KeyError, TypeError, ValueError):
             return None
@@ -122,6 +179,57 @@ def weather_label(code: int, is_day: bool = True) -> str:
     }[weather_kind(code, is_day)]
 
 
+def _open_meteo_periods(payload: Any, fetched_at: int) -> tuple[WeatherPeriod, ...]:
+    try:
+        hourly = payload["hourly"]
+        rows = list(
+            zip(
+                hourly["time"],
+                hourly["temperature_2m"],
+                hourly["weather_code"],
+                hourly["precipitation_probability"],
+            )
+        )
+    except (KeyError, TypeError):
+        return ()
+
+    current = datetime.fromtimestamp(fetched_at, TAIPEI)
+    boundary = current.replace(
+        hour=current.hour - current.hour % 3, minute=0, second=0, microsecond=0
+    )
+    by_time: dict[datetime, tuple[float, int, int]] = {}
+    try:
+        for stamp, temperature, code, rain in rows:
+            parsed = datetime.fromisoformat(stamp)
+            if parsed.tzinfo is None:
+                parsed = parsed.replace(tzinfo=TAIPEI)
+            by_time[parsed] = (
+                float(temperature),
+                int(code),
+                max(0, min(100, int(rain))),
+            )
+    except (TypeError, ValueError):
+        return ()
+
+    periods: list[WeatherPeriod] = []
+    for index in range(3):
+        start = boundary + timedelta(hours=index * 3)
+        values = by_time.get(start)
+        if values is None:
+            continue
+        temperature, code, rain = values
+        periods.append(
+            WeatherPeriod(
+                start=int(start.timestamp()),
+                end=int((start + timedelta(hours=3)).timestamp()),
+                temperature=temperature,
+                weather_code=code,
+                rain_probability=rain,
+            )
+        )
+    return tuple(periods)
+
+
 def _parse_payload(payload: Any, fetched_at: int) -> WeatherSnapshot:
     try:
         current = payload["current"]
@@ -137,6 +245,17 @@ def _parse_payload(payload: Any, fetched_at: int) -> WeatherSnapshot:
             ),
             fetched_at=fetched_at,
             source="open-meteo",
+            apparent_temperature=(
+                float(current["apparent_temperature"])
+                if current.get("apparent_temperature") is not None
+                else None
+            ),
+            humidity=(
+                max(0, min(100, int(current["relative_humidity_2m"])))
+                if current.get("relative_humidity_2m") is not None
+                else None
+            ),
+            forecast_periods=_open_meteo_periods(payload, fetched_at),
         )
     except (KeyError, IndexError, TypeError, ValueError) as exc:
         raise WeatherError("Open-Meteo returned incomplete weather data") from exc
@@ -148,7 +267,13 @@ def fetch_open_meteo_weather(now: int | None = None) -> WeatherSnapshot:
         {
             "latitude": WEATHER_LATITUDE,
             "longitude": WEATHER_LONGITUDE,
-            "current": "temperature_2m,weather_code,is_day",
+            "current": (
+                "temperature_2m,apparent_temperature,relative_humidity_2m,"
+                "weather_code,is_day"
+            ),
+            "hourly": (
+                "temperature_2m,weather_code,precipitation_probability"
+            ),
             "daily": (
                 "temperature_2m_max,temperature_2m_min,"
                 "precipitation_probability_max"
@@ -205,6 +330,13 @@ def _forecast_element(location: Any, name: str) -> list[Any]:
         return match["Time"]
     except (KeyError, StopIteration, TypeError) as exc:
         raise WeatherError(f"CWA forecast is missing {name}") from exc
+
+
+def _optional_forecast_element(location: Any, name: str) -> list[Any]:
+    try:
+        return _forecast_element(location, name)
+    except WeatherError:
+        return []
 
 
 def _number(record: Any, key: str) -> float:
@@ -265,6 +397,73 @@ def _active_or_next_period(periods: list[Any], current: datetime) -> Any:
     return parsed[-1][2]
 
 
+def _point_values(records: list[Any], key: str) -> list[tuple[datetime, float]]:
+    try:
+        return [
+            (datetime.fromisoformat(item["DataTime"]), _number(item, key))
+            for item in records
+        ]
+    except (KeyError, TypeError, ValueError) as exc:
+        raise WeatherError(f"CWA returned invalid {key} points") from exc
+
+
+def _nearest_point(
+    points: list[tuple[datetime, float]], current: datetime
+) -> float | None:
+    if not points:
+        return None
+    return min(points, key=lambda item: abs((item[0] - current).total_seconds()))[1]
+
+
+def _cwa_forecast_periods(
+    location: Any,
+    temperature_points: list[tuple[datetime, float]],
+) -> tuple[WeatherPeriod, ...]:
+    rain_periods = _forecast_element(location, "3小時降雨機率")
+    condition_periods = _forecast_element(location, "天氣現象")
+    conditions: dict[tuple[str, str], Any] = {
+        (item.get("StartTime"), item.get("EndTime")): item
+        for item in condition_periods
+    }
+    periods: list[WeatherPeriod] = []
+    try:
+        for rain in rain_periods:
+            start = datetime.fromisoformat(rain["StartTime"])
+            end = datetime.fromisoformat(rain["EndTime"])
+            values = [
+                value
+                for timestamp, value in temperature_points
+                if start <= timestamp < end
+            ]
+            if not values:
+                nearest = _nearest_point(temperature_points, start)
+                if nearest is None:
+                    continue
+                values = [nearest]
+            condition = conditions.get((rain["StartTime"], rain["EndTime"]))
+            if condition is None:
+                condition = _active_or_next_period(condition_periods, start)
+            description = str(condition["ElementValue"][0]["Weather"])
+            periods.append(
+                WeatherPeriod(
+                    start=int(start.timestamp()),
+                    end=int(end.timestamp()),
+                    temperature=sum(values) / len(values),
+                    weather_code=_cwa_code(description),
+                    rain_probability=max(
+                        0,
+                        min(
+                            100,
+                            round(_number(rain, "ProbabilityOfPrecipitation")),
+                        ),
+                    ),
+                )
+            )
+    except (KeyError, IndexError, TypeError, ValueError) as exc:
+        raise WeatherError("CWA returned invalid short-term forecast periods") from exc
+    return tuple(periods)
+
+
 def _parse_cwa_payloads(
     forecast: Any,
     observation: Any | None,
@@ -281,11 +480,17 @@ def _parse_cwa_payloads(
     except (KeyError, IndexError, StopIteration, TypeError) as exc:
         raise WeatherError("CWA returned no Wenshan forecast") from exc
 
-    temperatures = _forecast_element(location, "溫度")
-    temperature_points = [
-        (datetime.fromisoformat(item["DataTime"]), _number(item, "Temperature"))
-        for item in temperatures
-    ]
+    temperature_points = _point_values(
+        _forecast_element(location, "溫度"), "Temperature"
+    )
+    apparent_points = _point_values(
+        _optional_forecast_element(location, "體感溫度"),
+        "ApparentTemperature",
+    )
+    humidity_points = _point_values(
+        _optional_forecast_element(location, "相對濕度"),
+        "RelativeHumidity",
+    )
     today_values = [
         value
         for timestamp, value in temperature_points
@@ -293,12 +498,12 @@ def _parse_cwa_payloads(
     ]
     if not today_values:
         raise WeatherError("CWA returned no temperatures for today")
-    nearest_forecast = min(
-        temperature_points,
-        key=lambda item: abs((item[0] - current).total_seconds()),
-    )[1]
+    nearest_forecast = _nearest_point(temperature_points, current)
+    if nearest_forecast is None:
+        raise WeatherError("CWA returned no current temperature forecast")
 
     observed_temperature: float | None = None
+    observed_humidity: float | None = None
     observed_high: float | None = None
     observed_low: float | None = None
     if observation is not None:
@@ -308,6 +513,7 @@ def _parse_cwa_payloads(
             elements = station["WeatherElement"]
             if abs((current - observed_at).total_seconds()) <= 2 * 60 * 60:
                 observed_temperature = _valid_observation(elements["AirTemperature"])
+                observed_humidity = _valid_observation(elements.get("RelativeHumidity"))
             extremes = elements["DailyExtreme"]
             for kind, target in (("DailyHigh", "high"), ("DailyLow", "low")):
                 info = extremes[kind]["TemperatureInfo"]
@@ -340,6 +546,11 @@ def _parse_cwa_payloads(
         description = str(active["ElementValue"][0]["Weather"])
     except (KeyError, IndexError, TypeError) as exc:
         raise WeatherError("CWA returned no current weather condition") from exc
+    humidity = (
+        observed_humidity
+        if observed_humidity is not None
+        else _nearest_point(humidity_points, current)
+    )
 
     return WeatherSnapshot(
         temperature=(
@@ -356,6 +567,9 @@ def _parse_cwa_payloads(
         source="cwa",
         rain_period_start=int(rain_start.timestamp()),
         rain_period_end=int(rain_end.timestamp()),
+        apparent_temperature=_nearest_point(apparent_points, current),
+        humidity=round(humidity) if humidity is not None else None,
+        forecast_periods=_cwa_forecast_periods(location, temperature_points),
     )
 
 
@@ -416,11 +630,17 @@ def get_weather(
     cache_path: Path = DEFAULT_CACHE_PATH,
     max_age: int = DEFAULT_MAX_AGE_SECONDS,
     now: int | None = None,
+    require_forecast: bool = False,
 ) -> tuple[WeatherSnapshot | None, bool]:
     """Return weather and whether its latest network refresh failed."""
     timestamp = int(time.time()) if now is None else now
     cached = load_weather(cache_path)
-    if not force and cached and timestamp - cached.fetched_at < max_age:
+    if (
+        not force
+        and cached
+        and timestamp - cached.fetched_at < max_age
+        and (not require_forecast or cached.forecast_periods)
+    ):
         return cached, False
     try:
         fresh = fetch_weather(timestamp)

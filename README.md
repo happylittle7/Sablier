@@ -1,14 +1,14 @@
 # Sablier
 
-Sablier 是一個為 Raspberry Pi 與 Waveshare 2.7 吋黑白電子紙設計的常駐儀表板。它直接使用本機 Codex CLI 與 Claude Code 的登入狀態，顯示 ChatGPT/Codex、Claude 的剩餘額度；也能切換成文山時鐘與天氣畫面。
+Sablier 是一個為 Raspberry Pi 與 Waveshare 2.7 吋黑白電子紙設計的常駐儀表板。它直接使用本機 Codex CLI 與 Claude Code 的登入狀態，顯示 ChatGPT/Codex、Claude 的剩餘額度，並提供文山時鐘與短期天氣預報畫面。
 
 > 專案目前針對 **Waveshare 2.7inch e-Paper HAT V2（264×176）** 與 Raspberry Pi 3 開發及測試。
 
 ## 畫面預覽
 
-| KEY1：使用量 | KEY2：時鐘與天氣 |
-| --- | --- |
-| ![使用量模式](docs/images/usage.png) | ![時鐘與天氣模式](docs/images/clock.png) |
+| KEY1：使用量 | KEY2：時鐘與天氣 | KEY3：短期天氣 |
+| --- | --- | --- |
+| ![使用量模式](docs/images/usage.png) | ![時鐘與天氣模式](docs/images/clock.png) | ![短期天氣模式](docs/images/weather.png) |
 
 預覽使用固定的示範資料產生，不包含真實帳號、額度或 API key。
 
@@ -17,8 +17,9 @@ Sablier 是一個為 Raspberry Pi 與 Waveshare 2.7 吋黑白電子紙設計的�
 - 同一畫面顯示 Claude 與 ChatGPT/Codex 的 Session、Weekly 剩餘百分比及重置時間。
 - 自動沿用 Codex CLI 與 Claude Code 的 OAuth 登入，必要時刷新 access token。
 - 個別服務或網路失敗時保留最後成功資料，並在對應 Logo 旁顯示警告圖示。
-- KEY1/KEY2 切換使用量及時鐘模式，KEY4 隨時強制刷新目前畫面。
+- KEY1/KEY2/KEY3 切換使用量、時鐘及短期天氣模式，KEY4 隨時強制刷新目前畫面。
 - 時鐘模式顯示文山目前溫度、天氣、高低溫與目前 3 小時區段的降雨機率。
+- 天氣模式顯示目前天氣、體感溫度、濕度，以及未來三個 3 小時區段的天氣、溫度與降雨機率。
 - 有中央氣象署 API key 時優先使用 CWA，否則自動使用免 key 的 Open-Meteo。
 - 支援 Waveshare V2 局部刷新，並定期全面刷新以降低殘影。
 - 每次刷新完成都讓面板進入 sleep 並關閉 HAT 電源腳位，避免面板長時間維持高電壓。
@@ -30,13 +31,14 @@ Sablier 是一個為 Raspberry Pi 與 Waveshare 2.7 吋黑白電子紙設計的�
 | --- | ---: | --- |
 | KEY1 | 5 | 切換到 Claude / Codex 使用量模式 |
 | KEY2 | 6 | 切換到文山時鐘與天氣模式 |
-| KEY3 | 13 | 保留給未來的第三種模式 |
+| KEY3 | 13 | 切換到文山短期天氣預報模式 |
 | KEY4 | 19 | 立即取得目前模式的新資料並全面刷新 |
 
 | 模式 | 自動更新 | 全面刷新策略 |
 | --- | --- | --- |
 | 使用量 | 每 5 分鐘 | 連續 5 次局部刷新後全面刷新 |
 | 時鐘 | 對齊每分鐘整點 | 連續 15 次局部刷新後全面刷新 |
+| 短期天氣 | 每 15 分鐘 | 每小時全面刷新一次 |
 | 天氣資料 | 最多每 15 分鐘抓取一次 | KEY4 會略過快取並立即重抓 |
 
 按下 KEY4 後會完成一次全面刷新，接著從該次操作重新計算使用量模式的 5 分鐘排程；時鐘模式則重新對齊下一個整分鐘。程式用 100 ms debounce 避免一次按壓被重複觸發，並以 `output/refresh.lock` 防止同時刷新。
@@ -137,6 +139,9 @@ set -a
 . ~/.config/sablier/weather.env 2>/dev/null || true
 set +a
 python3 main.py --mode clock --preview output/clock-preview.png
+
+# 產生未來 9 小時天氣 PNG
+python3 main.py --mode weather --preview output/weather-preview.png
 ```
 
 不加 `--preview` 會將對應畫面全面刷新到電子紙：
@@ -144,6 +149,7 @@ python3 main.py --mode clock --preview output/clock-preview.png
 ```bash
 python3 main.py
 python3 main.py --mode clock
+python3 main.py --mode weather
 ```
 
 ### 7. 安裝常駐服務
@@ -176,8 +182,8 @@ journalctl --user -u sablier.service -f
 ## 命令列用法
 
 ```text
-python3 main.py [--mode usage|clock] [--preview FILE] [--json]
-python3 main.py --daemon [--mode usage|clock]
+python3 main.py [--mode usage|clock|weather] [--preview FILE] [--json]
+python3 main.py --daemon [--mode usage|clock|weather]
 ```
 
 - `--preview FILE`：只儲存 264×176 PNG，不操作硬體。
@@ -302,5 +308,4 @@ tests/                   unittest 測試
 
 - 目前只支援 Waveshare 2.7inch e-Paper HAT V2 的 264×176 黑白面板。
 - 地點目前固定為臺北市文山區，尚未提供設定檔切換地點。
-- KEY3 尚未實作。
 - 本專案是個人儀表板，不隸屬於或獲得 OpenAI、Anthropic、Waveshare、中央氣象署及 Open-Meteo 背書。

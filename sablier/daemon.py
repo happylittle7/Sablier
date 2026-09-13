@@ -19,11 +19,12 @@ BUTTON_GPIOS = {
     "KEY3": KEY3_GPIO,
     "KEY4": KEY4_GPIO,
 }
-BUTTON_MODES = {"KEY1": "usage", "KEY2": "clock"}
+BUTTON_MODES = {"KEY1": "usage", "KEY2": "clock", "KEY3": "weather"}
 DEBOUNCE_SECONDS = 0.1
 POLL_SECONDS = 0.05
 DEFAULT_INTERVAL_SECONDS = 5 * 60
-MAX_PARTIAL_REFRESHES = {"usage": 5, "clock": 15}
+WEATHER_INTERVAL_SECONDS = 15 * 60
+MAX_PARTIAL_REFRESHES = {"usage": 5, "clock": 15, "weather": 3}
 
 
 def refresh_mode_for(
@@ -68,7 +69,7 @@ def _wait_for_trigger(
 
 
 def run_daemon(
-    refresh: Callable[[str, str], int],
+    refresh: Callable[[str, str, bool], int],
     *,
     interval: float = DEFAULT_INTERVAL_SECONDS,
     initial_mode: str = "usage",
@@ -99,7 +100,9 @@ def run_daemon(
         initial_mode,
     )
 
-    active_mode = initial_mode if initial_mode in ("usage", "clock") else "usage"
+    active_mode = (
+        initial_mode if initial_mode in ("usage", "clock", "weather") else "usage"
+    )
     reason = "startup"
     partial_refreshes = 0
     try:
@@ -112,7 +115,7 @@ def run_daemon(
                 refresh_mode,
             )
             try:
-                exit_code = refresh(active_mode, refresh_mode)
+                exit_code = refresh(active_mode, refresh_mode, reason == "KEY4")
             except Exception:
                 logging.exception("Unexpected refresh failure")
             else:
@@ -128,6 +131,8 @@ def run_daemon(
             wait_seconds = (
                 seconds_until_next_minute()
                 if active_mode == "clock"
+                else WEATHER_INTERVAL_SECONDS
+                if active_mode == "weather"
                 else interval
             )
             deadline = time.monotonic() + wait_seconds
@@ -137,9 +142,6 @@ def run_daemon(
                 )
                 if trigger is None:
                     break
-                if trigger == "KEY3":
-                    logging.info("KEY3 mode is reserved; keeping %s mode", active_mode)
-                    continue
                 target_mode = BUTTON_MODES.get(trigger)
                 if target_mode is not None:
                     if target_mode == active_mode:

@@ -18,7 +18,7 @@ from sablier.claude_usage import ClaudeSnapshot, ClaudeUsageError, fetch_claude_
 from sablier.codex_usage import UsageError, UsageSnapshot, fetch_usage
 from sablier.daemon import DEFAULT_INTERVAL_SECONDS, run_daemon
 from sablier.epaper import EPD2in7V2, EpaperError
-from sablier.render import render_clock, render_dashboard
+from sablier.render import render_clock, render_dashboard, render_weather
 from sablier.state import (
     CachedSnapshots,
     load_display_mode,
@@ -50,7 +50,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--mode",
-        choices=("usage", "clock"),
+        choices=("usage", "clock", "weather"),
         help="display one mode (daemon default: last selected mode)",
     )
     parser.add_argument(
@@ -173,9 +173,14 @@ def update(args: argparse.Namespace, refresh_mode: str = "full") -> int:
         return 1
 
 
-def update_clock(args: argparse.Namespace, refresh_mode: str = "full") -> int:
+def update_clock(
+    args: argparse.Namespace,
+    refresh_mode: str = "full",
+    *,
+    force_data: bool = False,
+) -> int:
     try:
-        weather, weather_warning = get_weather(force=refresh_mode == "full")
+        weather, weather_warning = get_weather(force=force_data)
         if weather_warning:
             logging.warning("Weather refresh failed; using cached data when available")
         _present_image(
@@ -189,17 +194,43 @@ def update_clock(args: argparse.Namespace, refresh_mode: str = "full") -> int:
         return 1
 
 
+def update_weather(
+    args: argparse.Namespace,
+    refresh_mode: str = "full",
+    *,
+    force_data: bool = False,
+) -> int:
+    try:
+        weather, weather_warning = get_weather(
+            force=force_data, require_forecast=True
+        )
+        if weather_warning:
+            logging.warning("Weather refresh failed; using cached data when available")
+        _present_image(
+            args,
+            render_weather(weather=weather, weather_warning=weather_warning),
+            refresh_mode,
+        )
+        return 0
+    except EpaperError as exc:
+        logging.error("%s", exc)
+        return 1
+
+
 def refresh_once(
     args: argparse.Namespace,
     display_mode: str = "usage",
     refresh_mode: str = "full",
+    force_data: bool = False,
 ) -> int:
     with refresh_lock() as acquired:
         if not acquired:
             logging.info("Another refresh is already running; skipping")
             return 0
         if display_mode == "clock":
-            return update_clock(args, refresh_mode)
+            return update_clock(args, refresh_mode, force_data=force_data)
+        if display_mode == "weather":
+            return update_weather(args, refresh_mode, force_data=force_data)
         return update(args, refresh_mode)
 
 
@@ -218,7 +249,9 @@ def main() -> int:
             logging.error("--interval must be greater than zero")
             return 2
         return run_daemon(
-            lambda display, refresh: refresh_once(args, display, refresh),
+            lambda display, refresh, force: refresh_once(
+                args, display, refresh, force_data=force
+            ),
             interval=args.interval,
             initial_mode=selected_mode,
             on_mode_change=save_display_mode,

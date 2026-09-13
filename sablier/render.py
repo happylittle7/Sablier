@@ -10,7 +10,7 @@ from PIL import Image, ImageDraw, ImageFont
 
 from .claude_usage import ClaudeSnapshot
 from .codex_usage import UsageSnapshot, UsageWindow
-from .weather import WeatherSnapshot, weather_kind, weather_label
+from .weather import WeatherPeriod, WeatherSnapshot, weather_kind, weather_label
 
 
 WIDTH = 264
@@ -165,20 +165,42 @@ def _draw_cloud(draw: ImageDraw.ImageDraw, x: int, y: int) -> None:
     draw.rectangle((x + 7, y + 11, x + 21, y + 19), fill=0)
 
 
+def _draw_cloud_with_halo(draw: ImageDraw.ImageDraw, x: int, y: int) -> None:
+    """Separate a foreground cloud from a sun or moon behind it."""
+    draw.ellipse((x + 1, y + 7, x + 15, y + 21), fill=255)
+    draw.ellipse((x + 6, y + 2, x + 22, y + 21), fill=255)
+    draw.ellipse((x + 13, y + 6, x + 27, y + 21), fill=255)
+    draw.rectangle((x + 5, y + 9, x + 23, y + 21), fill=255)
+    _draw_cloud(draw, x, y)
+
+
+def _draw_moon(draw: ImageDraw.ImageDraw, x: int, y: int) -> None:
+    draw.ellipse((x + 5, y + 3, x + 21, y + 21), fill=0)
+    draw.ellipse((x + 11, y, x + 24, y + 16), fill=255)
+
+
 def _draw_weather_icon(
     draw: ImageDraw.ImageDraw, weather: WeatherSnapshot, x: int, y: int
 ) -> None:
-    kind = weather_kind(weather.weather_code, weather.is_day)
+    _draw_weather_symbol(draw, weather.weather_code, weather.is_day, x, y)
+
+
+def _draw_weather_symbol(
+    draw: ImageDraw.ImageDraw, code: int, is_day: bool, x: int, y: int
+) -> None:
+    kind = weather_kind(code, is_day)
     if kind == "clear":
         _draw_sun(draw, x, y)
         return
     if kind == "night":
-        draw.ellipse((x + 5, y + 3, x + 21, y + 21), fill=0)
-        draw.ellipse((x + 11, y, x + 24, y + 16), fill=255)
+        _draw_moon(draw, x, y)
         return
     if kind == "partly_cloudy":
-        _draw_sun(draw, x - 2, y - 3)
-        _draw_cloud(draw, x + 3, y + 5)
+        if is_day:
+            _draw_sun(draw, x - 2, y - 3)
+        else:
+            _draw_moon(draw, x - 2, y - 3)
+        _draw_cloud_with_halo(draw, x + 3, y + 5)
         return
     if kind == "fog":
         _draw_cloud(draw, x, y - 4)
@@ -208,6 +230,24 @@ def _draw_weather_icon(
             ),
             fill=0,
         )
+
+
+def _draw_large_weather_icon(
+    image: Image.Image, code: int, is_day: bool, x: int, y: int
+) -> None:
+    icon = Image.new("1", (32, 34), 255)
+    _draw_weather_symbol(ImageDraw.Draw(icon), code, is_day, 3, 2)
+    icon = icon.resize((58, 62), Image.Resampling.NEAREST)
+    image.paste(icon, (x, y))
+
+
+def _draw_small_weather_icon(
+    image: Image.Image, code: int, is_day: bool, x: int, y: int
+) -> None:
+    icon = Image.new("1", (32, 34), 255)
+    _draw_weather_symbol(ImageDraw.Draw(icon), code, is_day, 3, 2)
+    icon = icon.resize((24, 26), Image.Resampling.NEAREST)
+    image.paste(icon, (x, y))
 
 
 def _window_label(window: UsageWindow, fallback: str) -> str:
@@ -470,6 +510,46 @@ def _draw_rain_icon(draw: ImageDraw.ImageDraw, x: int, y: int) -> None:
     draw.text((x, y - 3), "☂", font=_font(18, bold=True), fill=0)
 
 
+def _draw_thermometer_icon(draw: ImageDraw.ImageDraw, x: int, y: int) -> None:
+    draw.rounded_rectangle((x + 3, y, x + 8, y + 11), radius=2, outline=0)
+    draw.line((x + 5, y + 4, x + 5, y + 12), fill=0, width=2)
+    draw.ellipse((x + 1, y + 9, x + 10, y + 18), fill=0)
+
+
+def _draw_humidity_icon(draw: ImageDraw.ImageDraw, x: int, y: int) -> None:
+    draw.polygon(
+        ((x + 6, y), (x + 1, y + 8), (x + 1, y + 12), (x + 3, y + 16),
+         (x + 6, y + 18), (x + 9, y + 16), (x + 11, y + 12),
+         (x + 11, y + 8)),
+        fill=0,
+    )
+
+
+def _draw_umbrella_icon(draw: ImageDraw.ImageDraw, x: int, y: int) -> None:
+    """Draw a legible outline umbrella without relying on a font glyph."""
+    draw.arc((x, y, x + 14, y + 10), 180, 360, fill=0, width=2)
+    draw.line(
+        (
+            x,
+            y + 5,
+            x + 3,
+            y + 4,
+            x + 5,
+            y + 5,
+            x + 8,
+            y + 4,
+            x + 10,
+            y + 5,
+            x + 14,
+            y + 5,
+        ),
+        fill=0,
+        width=1,
+    )
+    draw.line((x + 7, y + 5, x + 7, y + 12), fill=0, width=2)
+    draw.arc((x + 7, y + 9, x + 12, y + 14), 0, 100, fill=0, width=2)
+
+
 def _draw_clock_metric(
     draw: ImageDraw.ImageDraw,
     *,
@@ -579,4 +659,152 @@ def render_clock(
         )
     draw.line((88, 133, 88, 170), fill=0)
     draw.line((176, 133, 176, 170), fill=0)
+    return image
+
+
+def _weather_period_label(period: WeatherPeriod, current: datetime) -> str:
+    start = datetime.fromtimestamp(period.start, current.tzinfo)
+    end = datetime.fromtimestamp(period.end, current.tzinfo)
+    if period.start <= current.timestamp() < period.end:
+        return "NOW"
+    return f"{start:%H}-{end:%H}"
+
+
+def _draw_weather_period(
+    image: Image.Image,
+    draw: ImageDraw.ImageDraw,
+    period: WeatherPeriod | None,
+    *,
+    center_x: int,
+    current: datetime,
+) -> None:
+    left = center_x - 40
+    right = center_x + 40
+    draw.rounded_rectangle((left, 101, right, 175), radius=4, outline=0)
+    if period is None:
+        _column_text(draw, center_x, 104, "--", _mono_bold_font(10))
+        draw.line((left + 1, 116, right - 1, 116), fill=0)
+        _column_text(draw, center_x, 144, "--°C", _font(13, bold=True))
+        _column_text(draw, center_x, 160, "--%", _font(12))
+        return
+
+    label = _weather_period_label(period, current)
+    label_font = _mono_bold_font(10)
+    _column_text(draw, center_x, 102, label, label_font)
+    draw.line((left + 1, 116, right - 1, 116), fill=0)
+
+    start = datetime.fromtimestamp(period.start, current.tzinfo)
+    _draw_small_weather_icon(
+        image,
+        period.weather_code,
+        6 <= start.hour < 18,
+        center_x - 12,
+        118,
+    )
+    temperature = f"{round(period.temperature):.0f}°C"
+    _column_text(draw, center_x, 143, temperature, _font(13, bold=True))
+
+    rain = f"{period.rain_probability}%"
+    rain_font = _font(12)
+    icon_width = 15
+    gap = 4
+    total_width = icon_width + gap + draw.textlength(rain, font=rain_font)
+    left = round(center_x - total_width / 2)
+    _draw_umbrella_icon(draw, left, 159)
+    draw.text((left + icon_width + gap, 158), rain, font=rain_font, fill=0)
+
+
+def render_weather(
+    now: datetime | None = None,
+    weather: WeatherSnapshot | None = None,
+    *,
+    weather_warning: bool = False,
+) -> Image.Image:
+    """Render current conditions and the next nine hours of weather."""
+    current = now or datetime.now().astimezone()
+    image = Image.new("1", (WIDTH, HEIGHT), 255)
+    draw = ImageDraw.Draw(image)
+
+    draw.text((7, 3), "WENSHAN", font=_mono_bold_font(11), fill=0)
+    date_text = f"{current.strftime('%a').upper()}  {current.strftime('%b %d').upper()}"
+    date_font = _font(10, bold=True)
+    date_width = draw.textlength(date_text, font=date_font)
+    draw.text((257 - date_width, 3), date_text, font=date_font, fill=0)
+    if weather_warning:
+        _draw_warning_icon(draw, 124, 2)
+
+    if weather is None:
+        _centered_text(draw, 55, "WEATHER UNAVAILABLE", _mono_bold_font(13))
+        periods: list[WeatherPeriod | None] = [None, None, None]
+    else:
+        _draw_large_weather_icon(
+            image, weather.weather_code, weather.is_day, 7, 23
+        )
+        now_font = _mono_bold_font(8)
+        draw.rounded_rectangle((72, 19, 101, 31), radius=3, fill=0)
+        draw.text((76, 19), "NOW", font=now_font, fill=255)
+        draw.text(
+            (70, 29),
+            f"{round(weather.temperature):.0f}°C",
+            font=_font(36, bold=True),
+            fill=0,
+        )
+
+        draw.line((185, 20, 185, 94), fill=0)
+        today_font = _mono_bold_font(9)
+        today_width = draw.textlength("TODAY", font=today_font)
+        draw.text((222 - today_width / 2, 19), "TODAY", font=today_font, fill=0)
+        detail_font = _font(14, bold=True)
+        _draw_arrow_icon(draw, 196, 39, up=True)
+        draw.text(
+            (210, 36),
+            f"{round(weather.high):.0f}°C",
+            font=detail_font,
+            fill=0,
+        )
+        _draw_arrow_icon(draw, 196, 65, up=False)
+        draw.text(
+            (210, 62),
+            f"{round(weather.low):.0f}°C",
+            font=detail_font,
+            fill=0,
+        )
+        draw.text(
+            (72, 65),
+            weather_label(weather.weather_code, weather.is_day),
+            font=_mono_font(9),
+            fill=0,
+        )
+
+        metric_font = _font(13)
+        metric_x = 72
+        if weather.apparent_temperature is not None:
+            _draw_thermometer_icon(draw, metric_x, 77)
+            draw.text(
+                (metric_x + 15, 77),
+                f"{round(weather.apparent_temperature):.0f}°C",
+                font=metric_font,
+                fill=0,
+            )
+            metric_x += 61
+        if weather.humidity is not None:
+            _draw_humidity_icon(draw, metric_x, 77)
+            draw.text(
+                (metric_x + 15, 77),
+                f"{weather.humidity}%",
+                font=metric_font,
+                fill=0,
+            )
+
+        upcoming = [
+            period
+            for period in weather.forecast_periods
+            if period.end > current.timestamp()
+        ][:3]
+        periods = [*upcoming, *([None] * (3 - len(upcoming)))]
+
+    for center_x, period in zip((44, 132, 220), periods):
+        _draw_weather_period(
+            image, draw, period, center_x=center_x, current=current
+        )
     return image

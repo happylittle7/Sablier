@@ -43,6 +43,8 @@ class StateTests(unittest.TestCase):
             self.assertEqual(load_display_mode(path), "usage")
             save_display_mode("clock", path)
             self.assertEqual(load_display_mode(path), "clock")
+            save_display_mode("weather", path)
+            self.assertEqual(load_display_mode(path), "weather")
             self.assertEqual(path.stat().st_mode & 0o777, 0o600)
 
     def test_invalid_display_mode_falls_back_to_usage(self) -> None:

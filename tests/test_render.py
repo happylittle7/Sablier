@@ -14,7 +14,9 @@ from sablier.render import (
     render_clock,
     render_dashboard,
     render_usage,
+    render_weather,
 )
+from sablier.weather import WeatherPeriod, WeatherSnapshot
 
 
 class RenderTests(unittest.TestCase):
@@ -45,6 +47,29 @@ class RenderTests(unittest.TestCase):
         self.assertEqual(first.size, (264, 176))
         self.assertEqual(first.mode, "1")
         self.assertIsNotNone(ImageChops.difference(first, second).getbbox())
+
+    def test_renders_weather_forecast(self) -> None:
+        current = datetime(2026, 9, 14, 9, 20).astimezone()
+        start = int(current.replace(minute=0, second=0).timestamp())
+        weather = WeatherSnapshot(
+            28,
+            2,
+            True,
+            31,
+            25,
+            60,
+            int(current.timestamp()),
+            apparent_temperature=30,
+            humidity=74,
+            forecast_periods=(
+                WeatherPeriod(start, start + 10800, 28, 2, 20),
+                WeatherPeriod(start + 10800, start + 21600, 27, 61, 60),
+                WeatherPeriod(start + 21600, start + 32400, 25, 95, 80),
+            ),
+        )
+        image = render_weather(current, weather)
+        self.assertEqual(image.size, (264, 176))
+        self.assertEqual(image.mode, "1")
 
     def test_renders_combined_dashboard(self) -> None:
         codex = UsageSnapshot(

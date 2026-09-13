@@ -15,7 +15,7 @@ from .codex_usage import UsageSnapshot, UsageWindow
 
 DEFAULT_CACHE_PATH = Path("output/usage-cache.json")
 DEFAULT_DISPLAY_STATE_PATH = Path("output/display-state.json")
-DISPLAY_MODES = frozenset({"usage", "clock"})
+DISPLAY_MODES = frozenset({"usage", "clock", "weather"})
 
 
 @dataclass(frozen=True)

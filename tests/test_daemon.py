@@ -9,6 +9,7 @@ from sablier.daemon import (
     KEY4_GPIO,
     MAX_PARTIAL_REFRESHES,
     POLL_SECONDS,
+    WEATHER_INTERVAL_SECONDS,
     refresh_mode_for,
     seconds_until_next_minute,
 )
@@ -28,6 +29,7 @@ class DaemonConfigurationTests(unittest.TestCase):
             BUTTON_GPIOS,
             {"KEY1": 5, "KEY2": 6, "KEY3": 13, "KEY4": 19},
         )
+        self.assertEqual(WEATHER_INTERVAL_SECONDS, 900)
 
     def test_startup_and_key4_force_full_refresh(self) -> None:
         self.assertEqual(refresh_mode_for("startup", 0), "full")
@@ -44,6 +46,12 @@ class DaemonConfigurationTests(unittest.TestCase):
         self.assertEqual(limit, 15)
         self.assertEqual(refresh_mode_for("scheduled", limit - 1, "clock"), "partial")
         self.assertEqual(refresh_mode_for("scheduled", limit, "clock"), "full")
+
+    def test_weather_refreshes_fully_once_an_hour(self) -> None:
+        limit = MAX_PARTIAL_REFRESHES["weather"]
+        self.assertEqual(limit, 3)
+        self.assertEqual(refresh_mode_for("scheduled", limit - 1, "weather"), "partial")
+        self.assertEqual(refresh_mode_for("scheduled", limit, "weather"), "full")
 
     def test_clock_wait_aligns_to_the_next_minute(self) -> None:
         self.assertEqual(seconds_until_next_minute(120), 60)

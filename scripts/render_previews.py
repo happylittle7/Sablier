@@ -16,8 +16,8 @@ sys.path.insert(0, str(ROOT))
 
 from sablier.claude_usage import ClaudeSnapshot  # noqa: E402
 from sablier.codex_usage import UsageSnapshot, UsageWindow  # noqa: E402
-from sablier.render import render_clock, render_dashboard  # noqa: E402
-from sablier.weather import WeatherSnapshot  # noqa: E402
+from sablier.render import render_clock, render_dashboard, render_weather  # noqa: E402
+from sablier.weather import WeatherPeriod, WeatherSnapshot  # noqa: E402
 
 
 TAIPEI = ZoneInfo("Asia/Taipei")
@@ -67,6 +67,31 @@ def main() -> None:
         source="cwa",
         rain_period_start=int(now.replace(minute=0).timestamp()),
         rain_period_end=int((now.replace(minute=0) + timedelta(hours=3)).timestamp()),
+        apparent_temperature=30,
+        humidity=74,
+        forecast_periods=(
+            WeatherPeriod(
+                int(now.replace(minute=0).timestamp()),
+                int((now.replace(minute=0) + timedelta(hours=3)).timestamp()),
+                28,
+                2,
+                20,
+            ),
+            WeatherPeriod(
+                int((now.replace(minute=0) + timedelta(hours=3)).timestamp()),
+                int((now.replace(minute=0) + timedelta(hours=6)).timestamp()),
+                27,
+                61,
+                60,
+            ),
+            WeatherPeriod(
+                int((now.replace(minute=0) + timedelta(hours=6)).timestamp()),
+                int((now.replace(minute=0) + timedelta(hours=9)).timestamp()),
+                25,
+                95,
+                80,
+            ),
+        ),
     )
 
     OUTPUT_DIRECTORY.mkdir(parents=True, exist_ok=True)
@@ -74,6 +99,7 @@ def main() -> None:
         OUTPUT_DIRECTORY / "usage.png"
     )
     render_clock(now=now, weather=weather).save(OUTPUT_DIRECTORY / "clock.png")
+    render_weather(now=now, weather=weather).save(OUTPUT_DIRECTORY / "weather.png")
 
 
 if __name__ == "__main__":
