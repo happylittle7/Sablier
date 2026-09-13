@@ -1,6 +1,6 @@
 # Sablier
 
-Sablier 是一個為 Raspberry Pi 與 Waveshare 2.7 吋黑白電子紙設計的常駐儀表板。它直接使用本機 Codex CLI 與 Claude Code 的登入狀態，顯示 ChatGPT/Codex、Claude 的剩餘額度；也能切換成板橋時鐘與天氣畫面。
+Sablier 是一個為 Raspberry Pi 與 Waveshare 2.7 吋黑白電子紙設計的常駐儀表板。它直接使用本機 Codex CLI 與 Claude Code 的登入狀態，顯示 ChatGPT/Codex、Claude 的剩餘額度；也能切換成文山時鐘與天氣畫面。
 
 > 專案目前針對 **Waveshare 2.7inch e-Paper HAT V2（264×176）** 與 Raspberry Pi 3 開發及測試。
 
@@ -18,7 +18,7 @@ Sablier 是一個為 Raspberry Pi 與 Waveshare 2.7 吋黑白電子紙設計的�
 - 自動沿用 Codex CLI 與 Claude Code 的 OAuth 登入，必要時刷新 access token。
 - 個別服務或網路失敗時保留最後成功資料，並在對應 Logo 旁顯示警告圖示。
 - KEY1/KEY2 切換使用量及時鐘模式，KEY4 隨時強制刷新目前畫面。
-- 時鐘模式顯示板橋目前溫度、天氣、高低溫與目前 3 小時區段的降雨機率。
+- 時鐘模式顯示文山目前溫度、天氣、高低溫與目前 3 小時區段的降雨機率。
 - 有中央氣象署 API key 時優先使用 CWA，否則自動使用免 key 的 Open-Meteo。
 - 支援 Waveshare V2 局部刷新，並定期全面刷新以降低殘影。
 - 每次刷新完成都讓面板進入 sleep 並關閉 HAT 電源腳位，避免面板長時間維持高電壓。
@@ -29,7 +29,7 @@ Sablier 是一個為 Raspberry Pi 與 Waveshare 2.7 吋黑白電子紙設計的�
 | 按鍵 | BCM GPIO | 行為 |
 | --- | ---: | --- |
 | KEY1 | 5 | 切換到 Claude / Codex 使用量模式 |
-| KEY2 | 6 | 切換到板橋時鐘與天氣模式 |
+| KEY2 | 6 | 切換到文山時鐘與天氣模式 |
 | KEY3 | 13 | 保留給未來的第三種模式 |
 | KEY4 | 19 | 立即取得目前模式的新資料並全面刷新 |
 
@@ -122,7 +122,7 @@ chmod 600 ~/.config/sablier/weather.env
 unset SABLIER_CWA_KEY
 ```
 
-服務啟動時會自動讀取這個檔案。Sablier 使用板橋觀測站 `C0AJ80` 的實測溫度，以及鄉鎮預報資料集 `F-D0047-069` 的板橋區預報；若 CWA 暫時失敗，會先嘗試 Open-Meteo，再保留最後一次快取。
+服務啟動時會自動讀取這個檔案。Sablier 使用文山觀測站 `C0AC80` 的實測溫度，以及鄉鎮預報資料集 `F-D0047-061` 的文山區預報；若 CWA 暫時失敗，會先嘗試 Open-Meteo，再保留最後一次快取。
 
 ### 6. 先產生預覽
 
@@ -205,7 +205,7 @@ Sablier 不會要求你把 token 複製進專案，也不會將 token 寫入 log
 
 - 主要來源：臺灣[中央氣象署開放資料平臺](https://opendata.cwa.gov.tw/)（設定 `CWA_API_KEY` 時）。
 - 備援來源：[Open-Meteo](https://open-meteo.com/)（免 API key）。
-- 查詢地點固定為新北市板橋區；經緯度備援為 `25.0114, 121.4618`。
+- 查詢地點固定為臺北市文山區；經緯度備援為 `25.00235, 121.575728`。
 - 天氣快取時間為 15 分鐘，網路失敗時會顯示舊資料與警告圖示。
 
 ## 電子紙刷新與休眠
@@ -301,6 +301,6 @@ tests/                   unittest 測試
 ## 限制
 
 - 目前只支援 Waveshare 2.7inch e-Paper HAT V2 的 264×176 黑白面板。
-- 地點目前固定為新北市板橋區，尚未提供設定檔切換地點。
+- 地點目前固定為臺北市文山區，尚未提供設定檔切換地點。
 - KEY3 尚未實作。
 - 本專案是個人儀表板，不隸屬於或獲得 OpenAI、Anthropic、Waveshare、中央氣象署及 Open-Meteo 背書。

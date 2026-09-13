@@ -20,11 +20,12 @@ from zoneinfo import ZoneInfo
 
 FORECAST_URL = "https://api.open-meteo.com/v1/forecast"
 CWA_API_BASE = "https://opendata.cwa.gov.tw/api/v1/rest/datastore"
-CWA_FORECAST_DATASET = "F-D0047-069"
+CWA_FORECAST_DATASET = "F-D0047-061"
 CWA_OBSERVATION_DATASET = "O-A0001-001"
-CWA_STATION_NAME = "板橋"
-BANQIAO_LATITUDE = 25.0114
-BANQIAO_LONGITUDE = 121.4618
+CWA_FORECAST_LOCATION = "文山區"
+CWA_STATION_NAME = "文山"
+WEATHER_LATITUDE = 25.00235
+WEATHER_LONGITUDE = 121.575728
 TAIPEI = ZoneInfo("Asia/Taipei")
 DEFAULT_CACHE_PATH = Path("output/weather-cache.json")
 DEFAULT_MAX_AGE_SECONDS = 15 * 60
@@ -145,8 +146,8 @@ def fetch_open_meteo_weather(now: int | None = None) -> WeatherSnapshot:
     timestamp = int(time.time()) if now is None else now
     query = urllib.parse.urlencode(
         {
-            "latitude": BANQIAO_LATITUDE,
-            "longitude": BANQIAO_LONGITUDE,
+            "latitude": WEATHER_LATITUDE,
+            "longitude": WEATHER_LONGITUDE,
             "current": "temperature_2m,weather_code,is_day",
             "daily": (
                 "temperature_2m_max,temperature_2m_min,"
@@ -271,9 +272,14 @@ def _parse_cwa_payloads(
 ) -> WeatherSnapshot:
     current = datetime.fromtimestamp(fetched_at, TAIPEI)
     try:
-        location = forecast["records"]["Locations"][0]["Location"][0]
-    except (KeyError, IndexError, TypeError) as exc:
-        raise WeatherError("CWA returned no Banqiao forecast") from exc
+        locations = forecast["records"]["Locations"][0]["Location"]
+        location = next(
+            item
+            for item in locations
+            if item.get("LocationName") == CWA_FORECAST_LOCATION
+        )
+    except (KeyError, IndexError, StopIteration, TypeError) as exc:
+        raise WeatherError("CWA returned no Wenshan forecast") from exc
 
     temperatures = _forecast_element(location, "溫度")
     temperature_points = [
@@ -356,7 +362,7 @@ def _parse_cwa_payloads(
 def fetch_cwa_weather(api_key: str, now: int | None = None) -> WeatherSnapshot:
     timestamp = int(time.time()) if now is None else now
     forecast = _cwa_request(
-        CWA_FORECAST_DATASET, {"locationName": "板橋區"}, api_key
+        CWA_FORECAST_DATASET, {"LocationName": CWA_FORECAST_LOCATION}, api_key
     )
     try:
         observation = _cwa_request(

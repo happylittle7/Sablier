@@ -520,7 +520,7 @@ def render_clock(
     image = Image.new("1", (WIDTH, HEIGHT), 255)
     draw = ImageDraw.Draw(image)
 
-    draw.text((8, 3), "BANQIAO", font=_mono_bold_font(11), fill=0)
+    draw.text((8, 3), "WENSHAN", font=_mono_bold_font(11), fill=0)
     date_text = f"{current.strftime('%a').upper()}  {current.strftime('%b %d').upper()}"
     draw.text((8, 17), date_text, font=_font(10, bold=True), fill=0)
     if weather is not None:

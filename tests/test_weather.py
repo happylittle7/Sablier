@@ -6,10 +6,15 @@ from pathlib import Path
 from unittest.mock import patch
 
 from sablier.weather import (
+    CWA_FORECAST_DATASET,
+    CWA_FORECAST_LOCATION,
+    CWA_OBSERVATION_DATASET,
+    CWA_STATION_NAME,
     WeatherError,
     WeatherSnapshot,
     _parse_cwa_payloads,
     _parse_payload,
+    fetch_cwa_weather,
     get_weather,
     save_weather,
     weather_kind,
@@ -17,6 +22,24 @@ from sablier.weather import (
 
 
 class WeatherTests(unittest.TestCase):
+    def test_cwa_fetch_uses_wenshan_forecast_and_station(self) -> None:
+        snapshot = WeatherSnapshot(26, 2, True, 30, 23, 40, 1000, source="cwa")
+        with (
+            patch("sablier.weather._cwa_request", side_effect=[{}, {}]) as request,
+            patch("sablier.weather._parse_cwa_payloads", return_value=snapshot),
+        ):
+            actual = fetch_cwa_weather("test-key", now=1000)
+
+        self.assertEqual(actual, snapshot)
+        self.assertEqual(
+            request.call_args_list[0].args,
+            (CWA_FORECAST_DATASET, {"LocationName": CWA_FORECAST_LOCATION}, "test-key"),
+        )
+        self.assertEqual(
+            request.call_args_list[1].args,
+            (CWA_OBSERVATION_DATASET, {"StationName": CWA_STATION_NAME}, "test-key"),
+        )
+
     def test_parses_cwa_forecast_and_station_observation(self) -> None:
         forecast = {
             "records": {
@@ -24,6 +47,11 @@ class WeatherTests(unittest.TestCase):
                     {
                         "Location": [
                             {
+                                "LocationName": "松山區",
+                                "WeatherElement": [],
+                            },
+                            {
+                                "LocationName": "文山區",
                                 "WeatherElement": [
                                     {
                                         "ElementName": "溫度",
