@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont
@@ -232,24 +232,6 @@ def _draw_weather_symbol(
         )
 
 
-def _draw_large_weather_icon(
-    image: Image.Image, code: int, is_day: bool, x: int, y: int
-) -> None:
-    icon = Image.new("1", (32, 34), 255)
-    _draw_weather_symbol(ImageDraw.Draw(icon), code, is_day, 3, 2)
-    icon = icon.resize((58, 62), Image.Resampling.NEAREST)
-    image.paste(icon, (x, y))
-
-
-def _draw_small_weather_icon(
-    image: Image.Image, code: int, is_day: bool, x: int, y: int
-) -> None:
-    icon = Image.new("1", (32, 34), 255)
-    _draw_weather_symbol(ImageDraw.Draw(icon), code, is_day, 3, 2)
-    icon = icon.resize((24, 26), Image.Resampling.NEAREST)
-    image.paste(icon, (x, y))
-
-
 def _window_label(window: UsageWindow, fallback: str) -> str:
     seconds = window.window_seconds
     if not seconds:
@@ -473,6 +455,21 @@ def _column_text(
     draw.text((center_x - width // 2, y), text, font=font, fill=0)
 
 
+def _tracked_text(
+    draw: ImageDraw.ImageDraw,
+    position: tuple[int, int],
+    text: str,
+    font: ImageFont.FreeTypeFont | ImageFont.ImageFont,
+    *,
+    tracking: int = 1,
+) -> None:
+    """Draw tiny labels with explicit spacing for clearer e-paper pixels."""
+    x, y = position
+    for character in text:
+        draw.text((x, y), character, font=font, fill=0)
+        x += round(draw.textlength(character, font=font)) + tracking
+
+
 def _draw_arrow_icon(
     draw: ImageDraw.ImageDraw, x: int, y: int, *, up: bool
 ) -> None:
@@ -511,16 +508,23 @@ def _draw_rain_icon(draw: ImageDraw.ImageDraw, x: int, y: int) -> None:
 
 
 def _draw_thermometer_icon(draw: ImageDraw.ImageDraw, x: int, y: int) -> None:
-    draw.rounded_rectangle((x + 3, y, x + 8, y + 11), radius=2, outline=0)
-    draw.line((x + 5, y + 4, x + 5, y + 12), fill=0, width=2)
-    draw.ellipse((x + 1, y + 9, x + 10, y + 18), fill=0)
+    draw.rounded_rectangle((x + 3, y, x + 8, y + 10), radius=2, outline=0)
+    draw.line((x + 5, y + 4, x + 5, y + 11), fill=0, width=2)
+    draw.ellipse((x + 1, y + 8, x + 10, y + 17), fill=0)
 
 
 def _draw_humidity_icon(draw: ImageDraw.ImageDraw, x: int, y: int) -> None:
     draw.polygon(
-        ((x + 6, y), (x + 1, y + 8), (x + 1, y + 12), (x + 3, y + 16),
-         (x + 6, y + 18), (x + 9, y + 16), (x + 11, y + 12),
-         (x + 11, y + 8)),
+        (
+            (x + 6, y),
+            (x + 1, y + 8),
+            (x + 1, y + 11),
+            (x + 3, y + 15),
+            (x + 6, y + 17),
+            (x + 9, y + 15),
+            (x + 11, y + 11),
+            (x + 11, y + 8),
+        ),
         fill=0,
     )
 
@@ -662,56 +666,227 @@ def render_clock(
     return image
 
 
-def _weather_period_label(period: WeatherPeriod, current: datetime) -> str:
-    start = datetime.fromtimestamp(period.start, current.tzinfo)
-    end = datetime.fromtimestamp(period.end, current.tzinfo)
+def _today_weather_periods(
+    weather: WeatherSnapshot, current: datetime
+) -> list[WeatherPeriod]:
+    day_start = current.replace(hour=0, minute=0, second=0, microsecond=0)
+    day_end = day_start + timedelta(days=1)
+    return sorted(
+        (
+            period
+            for period in weather.forecast_periods
+            if period.start < day_end.timestamp()
+            and period.end > day_start.timestamp()
+        ),
+        key=lambda period: period.start,
+    )
+
+
+def _future_rain_summary(
+    periods: list[WeatherPeriod], current: datetime
+) -> tuple[int | None, str]:
+    now = current.timestamp()
+    future = [period for period in periods if period.end > now]
+    if not future:
+        return None, "NO MORE FORECAST TODAY"
+
+    peak = max(period.rain_probability for period in future)
+    threshold = 50 if peak >= 50 else 30 if peak >= 30 else None
+    if threshold is None:
+        return peak, "LOW RAIN RISK TODAY"
+
+    candidates = [period for period in future if period.rain_probability >= threshold]
+    first = candidates[0]
+    last = first
+    for period in candidates[1:]:
+        if period.start != last.end:
+            break
+        last = period
+
+    start = datetime.fromtimestamp(first.start, current.tzinfo)
+    end = datetime.fromtimestamp(last.end, current.tzinfo)
+    likelihood = "LIKELY" if threshold == 50 else "POSSIBLE"
+    end_hour = (
+        "24" if end.date() > current.date() and end.hour == 0 else f"{end:%H}"
+    )
+    if first.start <= now:
+        period_label = f"NOW-{end_hour}"
+    else:
+        period_label = f"{start:%H}-{end_hour}"
+    return peak, f"RAIN {likelihood} {period_label}"
+
+
+def _compact_rain_summary(summary: str) -> str:
+    if summary.startswith("RAIN "):
+        return summary.removeprefix("RAIN ")
+    if summary == "LOW RAIN RISK TODAY":
+        return "LOW RISK"
+    if summary == "NO MORE FORECAST TODAY":
+        return "NO FORECAST"
+    return summary
+
+
+def _forecast_periods(
+    weather: WeatherSnapshot, current: datetime, *, count: int = 4
+) -> list[WeatherPeriod]:
+    now = current.timestamp()
+    return sorted(
+        (period for period in weather.forecast_periods if period.end > now),
+        key=lambda period: period.start,
+    )[:count]
+
+
+def _forecast_label(period: WeatherPeriod, current: datetime) -> str:
     if period.start <= current.timestamp() < period.end:
         return "NOW"
-    return f"{start:%H}-{end:%H}"
+    start = datetime.fromtimestamp(period.start, current.tzinfo)
+    end = datetime.fromtimestamp(period.end, current.tzinfo)
+    end_hour = "24" if end.date() > start.date() and end.hour == 0 else f"{end:%H}"
+    return f"{start:%H}-{end_hour}"
 
 
-def _draw_weather_period(
-    image: Image.Image,
+def _draw_forecast_slot(
     draw: ImageDraw.ImageDraw,
-    period: WeatherPeriod | None,
     *,
     center_x: int,
+    period: WeatherPeriod | None,
     current: datetime,
 ) -> None:
-    left = center_x - 40
-    right = center_x + 40
-    draw.rounded_rectangle((left, 101, right, 175), radius=4, outline=0)
     if period is None:
-        _column_text(draw, center_x, 104, "--", _mono_bold_font(10))
-        draw.line((left + 1, 116, right - 1, 116), fill=0)
-        _column_text(draw, center_x, 144, "--°C", _font(13, bold=True))
-        _column_text(draw, center_x, 160, "--%", _font(12))
+        _column_text(draw, center_x, 67, "--", _mono_bold_font(9))
+        _column_text(draw, center_x, 105, "--°C", _font(12, bold=True))
         return
 
-    label = _weather_period_label(period, current)
-    label_font = _mono_bold_font(10)
-    _column_text(draw, center_x, 102, label, label_font)
-    draw.line((left + 1, 116, right - 1, 116), fill=0)
-
-    start = datetime.fromtimestamp(period.start, current.tzinfo)
-    _draw_small_weather_icon(
-        image,
-        period.weather_code,
-        6 <= start.hour < 18,
-        center_x - 12,
-        118,
+    _column_text(
+        draw,
+        center_x,
+        67,
+        _forecast_label(period, current),
+        _mono_bold_font(9),
     )
-    temperature = f"{round(period.temperature):.0f}°C"
-    _column_text(draw, center_x, 143, temperature, _font(13, bold=True))
+    midpoint = datetime.fromtimestamp(
+        period.start + (period.end - period.start) / 2, current.tzinfo
+    )
+    _draw_weather_symbol(
+        draw,
+        period.weather_code,
+        6 <= midpoint.hour < 18,
+        center_x - 14,
+        78,
+    )
+    _column_text(
+        draw,
+        center_x,
+        105,
+        f"{round(period.temperature):.0f}°C",
+        _font(12, bold=True),
+    )
 
-    rain = f"{period.rain_probability}%"
-    rain_font = _font(12)
-    icon_width = 15
-    gap = 4
-    total_width = icon_width + gap + draw.textlength(rain, font=rain_font)
-    left = round(center_x - total_width / 2)
-    _draw_umbrella_icon(draw, left, 159)
-    draw.text((left + icon_width + gap, 158), rain, font=rain_font, fill=0)
+
+def _dashed_line(
+    draw: ImageDraw.ImageDraw,
+    start: tuple[int, int],
+    end: tuple[int, int],
+    *,
+    dash: int = 3,
+    gap: int = 3,
+    width: int = 1,
+) -> None:
+    x1, y1 = start
+    x2, y2 = end
+    if x1 == x2:
+        direction = 1 if y2 >= y1 else -1
+        position = y1
+        while (position - y2) * direction <= 0:
+            finish = position + direction * (dash - 1)
+            finish = min(finish, y2) if direction > 0 else max(finish, y2)
+            draw.line((x1, position, x2, finish), fill=0, width=width)
+            position += direction * (dash + gap)
+        return
+
+    direction = 1 if x2 >= x1 else -1
+    position = x1
+    while (position - x2) * direction <= 0:
+        finish = position + direction * (dash - 1)
+        finish = min(finish, x2) if direction > 0 else max(finish, x2)
+        draw.line((position, y1, finish, y2), fill=0, width=width)
+        position += direction * (dash + gap)
+
+
+def _draw_rain_chart(
+    draw: ImageDraw.ImageDraw,
+    periods: list[WeatherPeriod],
+    current: datetime,
+) -> None:
+    plot_left, plot_right = 27, 257
+    plot_top, plot_bottom = 143, 161
+    day_start = current.replace(hour=0, minute=0, second=0, microsecond=0)
+    day_end = day_start + timedelta(days=1)
+    day_start_ts = day_start.timestamp()
+    day_seconds = (day_end - day_start).total_seconds()
+
+    def x_for(timestamp: float) -> int:
+        ratio = (timestamp - day_start_ts) / day_seconds
+        return round(plot_left + max(0, min(1, ratio)) * (plot_right - plot_left))
+
+    def y_for(probability: int) -> int:
+        ratio = max(0, min(100, probability)) / 100
+        return round(plot_bottom - ratio * (plot_bottom - plot_top))
+
+    grid_font = _mono_font(7)
+    middle_y = y_for(50)
+    draw.text((5, middle_y - 4), "50", font=grid_font, fill=0)
+    _dashed_line(draw, (plot_left, middle_y), (plot_right, middle_y), dash=2, gap=3)
+    draw.line((plot_left, plot_bottom, plot_right, plot_bottom), fill=0)
+
+    axis_font = _mono_bold_font(8)
+    for hour in (0, 6, 12, 18, 24):
+        timestamp = day_start_ts + hour * 3600
+        x = x_for(timestamp)
+        label = f"{hour:02d}"
+        box = draw.textbbox((0, 0), label, font=axis_font)
+        width = box[2] - box[0]
+        draw.text(
+            (max(2, min(WIDTH - width - 2, x - width // 2)), 165),
+            label,
+            font=axis_font,
+            fill=0,
+        )
+
+    now_ts = current.timestamp()
+    if day_start_ts <= now_ts < day_end.timestamp():
+        now_x = x_for(now_ts)
+        _dashed_line(draw, (now_x, plot_top), (now_x, plot_bottom), dash=2, gap=2)
+        draw.polygon(
+            ((now_x - 2, plot_top - 3), (now_x + 2, plot_top - 3), (now_x, plot_top)),
+            fill=0,
+        )
+
+    previous: WeatherPeriod | None = None
+    for period in periods:
+        start = max(period.start, day_start_ts)
+        end = min(period.end, day_end.timestamp())
+        if start >= end:
+            continue
+        x1, x2 = x_for(start), x_for(end)
+        y = y_for(period.rain_probability)
+        if previous is not None and previous.end == period.start:
+            boundary = x_for(period.start)
+            previous_y = y_for(previous.rain_probability)
+            if period.start < now_ts:
+                _dashed_line(draw, (boundary, previous_y), (boundary, y), dash=2, gap=2)
+            else:
+                draw.line((boundary, previous_y, boundary, y), fill=0, width=2)
+
+        if end <= now_ts:
+            _dashed_line(draw, (x1, y), (x2, y), dash=3, gap=2)
+        elif start < now_ts < end:
+            now_x = x_for(now_ts)
+            _dashed_line(draw, (x1, y), (now_x, y), dash=3, gap=2)
+            draw.line((now_x, y, x2, y), fill=0, width=2)
+        else:
+            draw.line((x1, y, x2, y), fill=0, width=2)
+        previous = period
 
 
 def render_weather(
@@ -720,8 +895,10 @@ def render_weather(
     *,
     weather_warning: bool = False,
 ) -> Image.Image:
-    """Render current conditions and the next nine hours of weather."""
+    """Render current conditions, four forecast slots, and a rain sparkline."""
     current = now or datetime.now().astimezone()
+    if current.tzinfo is None:
+        current = current.astimezone()
     image = Image.new("1", (WIDTH, HEIGHT), 255)
     draw = ImageDraw.Draw(image)
 
@@ -731,80 +908,70 @@ def render_weather(
     date_width = draw.textlength(date_text, font=date_font)
     draw.text((257 - date_width, 3), date_text, font=date_font, fill=0)
     if weather_warning:
-        _draw_warning_icon(draw, 124, 2)
+        _draw_warning_icon(draw, 58, 1)
 
-    if weather is None:
-        _centered_text(draw, 55, "WEATHER UNAVAILABLE", _mono_bold_font(13))
-        periods: list[WeatherPeriod | None] = [None, None, None]
-    else:
-        _draw_large_weather_icon(
-            image, weather.weather_code, weather.is_day, 7, 23
-        )
-        now_font = _mono_bold_font(8)
-        draw.rounded_rectangle((72, 19, 101, 31), radius=3, fill=0)
-        draw.text((76, 19), "NOW", font=now_font, fill=255)
+    if weather is not None:
+        _draw_weather_icon(draw, weather, 7, 24)
         draw.text(
-            (70, 29),
+            (42, 18),
             f"{round(weather.temperature):.0f}°C",
-            font=_font(36, bold=True),
+            font=_font(27, bold=True),
             fill=0,
         )
-
-        draw.line((185, 20, 185, 94), fill=0)
-        today_font = _mono_bold_font(9)
-        today_width = draw.textlength("TODAY", font=today_font)
-        draw.text((222 - today_width / 2, 19), "TODAY", font=today_font, fill=0)
-        detail_font = _font(14, bold=True)
-        _draw_arrow_icon(draw, 196, 39, up=True)
-        draw.text(
-            (210, 36),
-            f"{round(weather.high):.0f}°C",
-            font=detail_font,
-            fill=0,
-        )
-        _draw_arrow_icon(draw, 196, 65, up=False)
-        draw.text(
-            (210, 62),
-            f"{round(weather.low):.0f}°C",
-            font=detail_font,
-            fill=0,
-        )
-        draw.text(
-            (72, 65),
+        _tracked_text(
+            draw,
+            (43, 46),
             weather_label(weather.weather_code, weather.is_day),
-            font=_mono_font(9),
-            fill=0,
+            _mono_font(9),
         )
+    else:
+        draw.text((42, 18), "--°C", font=_font(27, bold=True), fill=0)
+        draw.text((43, 47), "UNAVAILABLE", font=_mono_font(8), fill=0)
 
-        metric_font = _font(13)
-        metric_x = 72
-        if weather.apparent_temperature is not None:
-            _draw_thermometer_icon(draw, metric_x, 77)
-            draw.text(
-                (metric_x + 15, 77),
-                f"{round(weather.apparent_temperature):.0f}°C",
-                font=metric_font,
-                fill=0,
-            )
-            metric_x += 61
-        if weather.humidity is not None:
-            _draw_humidity_icon(draw, metric_x, 77)
-            draw.text(
-                (metric_x + 15, 77),
-                f"{weather.humidity}%",
-                font=metric_font,
-                fill=0,
-            )
+    draw.line((138, 21, 138, 59), fill=0)
+    metric_font = _font(12, bold=True)
+    high = f"{round(weather.high):.0f}°C" if weather else "--°C"
+    low = f"{round(weather.low):.0f}°C" if weather else "--°C"
+    apparent = (
+        f"{round(weather.apparent_temperature):.0f}°C"
+        if weather and weather.apparent_temperature is not None
+        else "--°C"
+    )
+    humidity = (
+        f"{weather.humidity}%"
+        if weather and weather.humidity is not None
+        else "--%"
+    )
+    _draw_arrow_icon(draw, 147, 22, up=True)
+    draw.text((160, 20), high, font=metric_font, fill=0)
+    _draw_arrow_icon(draw, 205, 22, up=False)
+    draw.text((218, 20), low, font=metric_font, fill=0)
+    _draw_thermometer_icon(draw, 147, 41)
+    draw.text((160, 40), apparent, font=metric_font, fill=0)
+    _draw_humidity_icon(draw, 205, 40)
+    draw.text((218, 40), humidity, font=metric_font, fill=0)
 
-        upcoming = [
-            period
-            for period in weather.forecast_periods
-            if period.end > current.timestamp()
-        ][:3]
-        periods = [*upcoming, *([None] * (3 - len(upcoming)))]
-
-    for center_x, period in zip((44, 132, 220), periods):
-        _draw_weather_period(
-            image, draw, period, center_x=center_x, current=current
+    draw.line((7, 62, 257, 62), fill=0)
+    slots = _forecast_periods(weather, current) if weather else []
+    for index, center_x in enumerate((33, 99, 165, 231)):
+        period = slots[index] if index < len(slots) else None
+        _draw_forecast_slot(
+            draw,
+            center_x=center_x,
+            period=period,
+            current=current,
         )
+    draw.line((7, 122, 257, 122), fill=0)
+
+    periods = _today_weather_periods(weather, current) if weather else []
+    peak, summary = _future_rain_summary(periods, current)
+    peak_value = f"{peak} %" if peak is not None else "-- %"
+    _draw_umbrella_icon(draw, 7, 126)
+    draw.text((26, 124), f"PEAK {peak_value}", font=_mono_bold_font(9), fill=0)
+    compact_summary = _compact_rain_summary(summary)
+    summary_font = _mono_bold_font(8)
+    summary_width = draw.textlength(compact_summary, font=summary_font)
+    draw.text((257 - summary_width, 125), compact_summary, font=summary_font, fill=0)
+
+    _draw_rain_chart(draw, periods, current)
     return image

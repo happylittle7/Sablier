@@ -193,10 +193,6 @@ def _open_meteo_periods(payload: Any, fetched_at: int) -> tuple[WeatherPeriod, .
     except (KeyError, TypeError):
         return ()
 
-    current = datetime.fromtimestamp(fetched_at, TAIPEI)
-    boundary = current.replace(
-        hour=current.hour - current.hour % 3, minute=0, second=0, microsecond=0
-    )
     by_time: dict[datetime, tuple[float, int, int]] = {}
     try:
         for stamp, temperature, code, rain in rows:
@@ -212,16 +208,27 @@ def _open_meteo_periods(payload: Any, fetched_at: int) -> tuple[WeatherPeriod, .
         return ()
 
     periods: list[WeatherPeriod] = []
-    for index in range(3):
-        start = boundary + timedelta(hours=index * 3)
-        values = by_time.get(start)
-        if values is None:
+    boundaries = sorted(
+        timestamp
+        for timestamp in by_time
+        if timestamp.hour % 3 == 0 and timestamp.minute == 0
+    )
+    for start in boundaries:
+        end = start + timedelta(hours=3)
+        values = [
+            value
+            for timestamp, value in by_time.items()
+            if start <= timestamp < end
+        ]
+        if not values:
             continue
-        temperature, code, rain = values
+        temperature = sum(value[0] for value in values) / len(values)
+        rain = max(value[2] for value in values)
+        code = max(values, key=lambda value: value[2])[1]
         periods.append(
             WeatherPeriod(
                 start=int(start.timestamp()),
-                end=int((start + timedelta(hours=3)).timestamp()),
+                end=int(end.timestamp()),
                 temperature=temperature,
                 weather_code=code,
                 rain_probability=rain,

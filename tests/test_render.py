@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import unittest
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from PIL import ImageChops
 
@@ -10,6 +10,7 @@ from sablier.codex_usage import UsageSnapshot, UsageWindow
 from sablier.render import (
     CLAUDE_LOGO,
     OPENAI_LOGO,
+    _future_rain_summary,
     _reset_text,
     render_clock,
     render_dashboard,
@@ -70,6 +71,23 @@ class RenderTests(unittest.TestCase):
         image = render_weather(current, weather)
         self.assertEqual(image.size, (264, 176))
         self.assertEqual(image.mode, "1")
+
+    def test_rain_summary_uses_24_for_midnight(self) -> None:
+        current = datetime(2026, 9, 14, 18, 0).astimezone()
+        start = current.replace(hour=0, minute=0, second=0, microsecond=0)
+        period_start = int((start + timedelta(hours=21)).timestamp())
+        periods = (
+            WeatherPeriod(
+                period_start,
+                int((start + timedelta(days=1)).timestamp()),
+                25,
+                61,
+                60,
+            ),
+        )
+        peak, summary = _future_rain_summary(list(periods), current)
+        self.assertEqual(peak, 60)
+        self.assertEqual(summary, "RAIN LIKELY 21-24")
 
     def test_renders_combined_dashboard(self) -> None:
         codex = UsageSnapshot(

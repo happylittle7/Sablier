@@ -13,6 +13,7 @@ from sablier.weather import (
     WeatherError,
     WeatherPeriod,
     WeatherSnapshot,
+    _open_meteo_periods,
     _parse_cwa_payloads,
     _parse_payload,
     fetch_cwa_weather,
@@ -186,6 +187,23 @@ class WeatherTests(unittest.TestCase):
         self.assertEqual(snapshot.rain_probability, 60)
         self.assertIsNone(snapshot.rain_period_start)
         self.assertEqual(weather_kind(snapshot.weather_code), "partly_cloudy")
+
+    def test_open_meteo_fallback_builds_the_full_day(self) -> None:
+        periods = _open_meteo_periods(
+            {
+                "hourly": {
+                    "time": [f"2026-09-14T{hour:02d}:00" for hour in range(24)],
+                    "temperature_2m": list(range(24)),
+                    "weather_code": [2] * 24,
+                    "precipitation_probability": list(range(24)),
+                }
+            },
+            0,
+        )
+        self.assertEqual(len(periods), 8)
+        self.assertEqual(periods[0].temperature, 1)
+        self.assertEqual(periods[0].rain_probability, 2)
+        self.assertEqual(periods[-1].rain_probability, 23)
 
     def test_fresh_cache_avoids_network(self) -> None:
         snapshot = WeatherSnapshot(

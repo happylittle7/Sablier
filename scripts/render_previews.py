@@ -43,6 +43,7 @@ def main() -> None:
 
     now = datetime(2026, 9, 6, 9, 41, tzinfo=TAIPEI)
     timestamp = int(now.timestamp())
+    day_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
     claude = ClaudeSnapshot(
         plan_type="pro",
         primary=_window(72, 5 * 60 * 60, now + timedelta(hours=3, minutes=19)),
@@ -69,28 +70,26 @@ def main() -> None:
         rain_period_end=int((now.replace(minute=0) + timedelta(hours=3)).timestamp()),
         apparent_temperature=30,
         humidity=74,
-        forecast_periods=(
+        forecast_periods=tuple(
             WeatherPeriod(
-                int(now.replace(minute=0).timestamp()),
-                int((now.replace(minute=0) + timedelta(hours=3)).timestamp()),
-                28,
-                2,
-                20,
-            ),
-            WeatherPeriod(
-                int((now.replace(minute=0) + timedelta(hours=3)).timestamp()),
-                int((now.replace(minute=0) + timedelta(hours=6)).timestamp()),
-                27,
-                61,
-                60,
-            ),
-            WeatherPeriod(
-                int((now.replace(minute=0) + timedelta(hours=6)).timestamp()),
-                int((now.replace(minute=0) + timedelta(hours=9)).timestamp()),
-                25,
-                95,
-                80,
-            ),
+                int((day_start + timedelta(hours=index * 3)).timestamp()),
+                int((day_start + timedelta(hours=(index + 1) * 3)).timestamp()),
+                temperature,
+                code,
+                rain,
+            )
+            for index, (temperature, code, rain) in enumerate(
+                (
+                    (25, 0, 10),
+                    (25, 0, 10),
+                    (26, 1, 20),
+                    (28, 2, 30),
+                    (31, 2, 60),
+                    (29, 61, 80),
+                    (27, 61, 50),
+                    (26, 2, 30),
+                )
+            )
         ),
     )
 
